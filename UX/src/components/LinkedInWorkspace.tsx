@@ -509,7 +509,6 @@ export default function LinkedInWorkspace() {
       const attemptCloudVariant = async (styleFormat: 'story' | 'list'): Promise<CloudAiResult> => {
         const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, selectedCta, styleFormat);
         const start = performance.now();
-        console.log("PROMPT:",generatedPrompt);
 
         const response = await fetch(`${BACKEND_URL}/api/v1/llm/invoke`, {
           method: 'POST',
@@ -541,7 +540,6 @@ export default function LinkedInWorkspace() {
         }
 
         const serverData = await response.json();
-        console.log("serverData",serverData);
         details.model = serverData.model || details.model;
         details.usage = serverData.usage || undefined;
         details.rateLimit = serverData.rate_limit || serverData.rateLimit || undefined;
@@ -620,19 +618,291 @@ export default function LinkedInWorkspace() {
   };
 
   return (
-    <div style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
+    <div className="linkedin-workspace" style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
       
       <style>{`
         .ProseMirror { outline: none; min-height: 160px; caret-color: #0066c2; }
         .ProseMirror-focused { border-color: #0066c2 !important; box-shadow: 0 0 0 3px rgba(0, 102, 194, 0.15); }
         .ProseMirror ::selection { background-color: #bfdbfe !important; color: #1e3a8a !important; }
+
+        .linkedin-workspace, .linkedin-workspace * { box-sizing: border-box; }
+        .topic-textarea, .editor-surface, .preview-body { overflow-wrap: anywhere; word-break: break-word; }
+        .preview-body img { max-width: 100% !important; height: auto !important; }
+        .preview-card { width: 100%; }
+        .cloud-config, .options-panel, .workspace-card, .preview-card { min-width: 0; }
+        .cloud-grid > div, .cloud-grid select, .cloud-grid input { min-width: 0; max-width: 100%; }
+        .editor-toolbar > div { min-width: 0; }
+        .editor-toolbar button { flex-shrink: 0; }
+
+        @media (max-width: 768px) {
+          .linkedin-workspace {
+            padding: 10px !important;
+          }
+
+          .workspace-container {
+            width: 100% !important;
+            gap: 12px !important;
+          }
+
+          .workspace-header {
+            padding: 12px !important;
+            border-radius: 12px !important;
+            align-items: stretch !important;
+          }
+
+          .workspace-header > div:first-child {
+            min-width: 0 !important;
+            flex: 1 1 100% !important;
+          }
+
+          .workspace-header h1 {
+            font-size: 16px !important;
+            line-height: 1.25 !important;
+          }
+
+          .workspace-header p {
+            font-size: 10px !important;
+            line-height: 1.35 !important;
+          }
+
+          .auth-button {
+            width: 100% !important;
+            justify-content: center !important;
+            padding: 10px 12px !important;
+          }
+
+          .status-message {
+            align-items: flex-start !important;
+            gap: 8px !important;
+          }
+
+          .workspace-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+            gap: 12px !important;
+          }
+
+          .workspace-left {
+            gap: 12px !important;
+            min-width: 0 !important;
+          }
+
+          .workspace-card {
+            padding: 14px !important;
+            border-radius: 12px !important;
+          }
+
+          .section-header {
+            align-items: flex-start !important;
+            gap: 8px !important;
+          }
+
+          .section-header > span:first-child {
+            min-width: 0 !important;
+            line-height: 1.35 !important;
+          }
+
+          .topic-textarea {
+            min-height: 88px;
+          }
+
+          .options-panel, .cloud-config {
+            padding: 11px !important;
+          }
+
+          .cloud-grid {
+            grid-template-columns: minmax(0, 1fr) !important;
+          }
+
+          .cloud-config > div:first-child {
+            align-items: flex-start !important;
+            gap: 8px !important;
+          }
+
+          .cloud-config > div:first-child > label {
+            min-width: 0 !important;
+            line-height: 1.35 !important;
+          }
+
+          .cloud-config > div:first-child > span {
+            white-space: normal !important;
+            text-align: right !important;
+          }
+
+          .generate-button {
+            width: 100% !important;
+            min-height: 44px !important;
+          }
+
+          .variants-container > div {
+            min-width: 0 !important;
+          }
+
+          .variants-container > div > div:first-child {
+            align-items: flex-start !important;
+            gap: 8px !important;
+            flex-wrap: wrap !important;
+          }
+
+          .variants-container > div > div:first-child > span:first-child {
+            min-width: 0 !important;
+            flex: 1 1 180px !important;
+            overflow-wrap: anywhere !important;
+          }
+
+          .editor-card {
+            padding: 14px !important;
+          }
+
+          .editor-toolbar {
+            align-items: stretch !important;
+            flex-direction: column !important;
+          }
+
+          .editor-toolbar > div:first-child {
+            width: 100% !important;
+            flex-wrap: wrap !important;
+          }
+
+          .editor-toolbar > div:last-child {
+            width: 100% !important;
+            justify-content: flex-start !important;
+            overflow-x: auto !important;
+            -webkit-overflow-scrolling: touch;
+          }
+
+          .editor-surface {
+            padding: 10px !important;
+            min-height: 180px !important;
+          }
+
+          .ProseMirror {
+            min-height: 160px !important;
+            max-width: 100% !important;
+            overflow-wrap: anywhere !important;
+            word-break: break-word !important;
+          }
+
+          .attachment-row {
+            flex-direction: column !important;
+            align-items: stretch !important;
+            gap: 8px !important;
+          }
+
+          .attachment-row > div {
+            width: 100% !important;
+            justify-content: stretch !important;
+          }
+
+          .attachment-row button,
+          .attachment-row a {
+            flex: 1 1 0 !important;
+            justify-content: center !important;
+          }
+
+          .post-actions {
+            flex-direction: column !important;
+            gap: 8px !important;
+          }
+
+          .post-actions button {
+            width: 100% !important;
+            min-height: 46px !important;
+            flex: none !important;
+          }
+
+          .preview-column {
+            position: static !important;
+            width: 100% !important;
+          }
+
+          .preview-header {
+            padding: 10px 12px !important;
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+          }
+
+          .preview-header > span:last-child {
+            white-space: normal !important;
+          }
+
+          .preview-content {
+            padding: 12px !important;
+          }
+
+          .preview-profile {
+            align-items: flex-start !important;
+          }
+
+          .preview-profile > div:last-child {
+            min-width: 0 !important;
+          }
+
+          .preview-profile > div:last-child > div {
+            overflow-wrap: anywhere !important;
+          }
+
+          .preview-footer {
+            flex-wrap: wrap !important;
+            gap: 6px !important;
+          }
+        }
+
+        @media (max-width: 420px) {
+          .linkedin-workspace {
+            padding: 6px !important;
+          }
+
+          .workspace-card {
+            padding: 11px !important;
+          }
+
+          .workspace-header {
+            padding: 10px !important;
+          }
+
+          .workspace-header > div:first-child > div:first-child {
+            width: 36px !important;
+            height: 36px !important;
+            font-size: 18px !important;
+            flex: 0 0 36px !important;
+          }
+
+          .workspace-header h1 {
+            font-size: 14px !important;
+          }
+
+          .workspace-header p {
+            font-size: 9px !important;
+          }
+
+          .section-header {
+            flex-direction: column !important;
+          }
+
+          .section-header > div {
+            width: 100% !important;
+            justify-content: flex-start !important;
+          }
+
+          .editor-toolbar {
+            padding: 7px !important;
+          }
+
+          .preview-header {
+            font-size: 11px !important;
+          }
+
+          .preview-body {
+            font-size: 12px !important;
+          }
+        }
       `}</style>
 
-      <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div className="workspace-container" style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         
         {/* HEADER BAR */}
-        <header style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '16px 24px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+        <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '16px 24px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div className="preview-profile" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
             <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '22px' }}>
               in
             </div>
@@ -642,7 +912,7 @@ export default function LinkedInWorkspace() {
             </div>
           </div>
 
-          <button 
+          <button className="auth-button"
             onClick={() => setShowAuthConfig(!showAuthConfig)}
             style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '9px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
@@ -665,7 +935,7 @@ export default function LinkedInWorkspace() {
         )}
 
         {statusMessage && (
-          <div style={{ 
+          <div className="status-message" style={{ 
             padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             backgroundColor: statusMessage.type === 'error' ? '#fef2f2' : statusMessage.type === 'success' ? '#ecfdf5' : '#eff6ff',
             color: statusMessage.type === 'error' ? '#991b1b' : statusMessage.type === 'success' ? '#065f46' : '#1e40af',
@@ -676,13 +946,13 @@ export default function LinkedInWorkspace() {
           </div>
         )}
 
-        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(340px, 1fr)', gap: '24px', alignItems: 'start' }}>
+        <div className="workspace-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(340px, 1fr)', gap: '24px', alignItems: 'start' }}>
           
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div className="workspace-left" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div className="workspace-card generator-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+              <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
                 <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
                 <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
                   <span style={{ backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : '#eff6ff', color: browserAiStatus === 'ready' ? '#166534' : '#1d4ed8', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
@@ -719,7 +989,7 @@ export default function LinkedInWorkspace() {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
                   Add Additional context or Type your topic details directly
                 </label>
-                <textarea 
+                <textarea className="topic-textarea"
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Speak or type notes here..."
@@ -729,7 +999,7 @@ export default function LinkedInWorkspace() {
               </div>
 
               {/* PREDEFINED PILLS */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+              <div className="options-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
                     Select Preferred Objective
@@ -796,7 +1066,7 @@ export default function LinkedInWorkspace() {
               </div>
 
               {/* CLOUD AI PROVIDER & KEYS CONFIGURATION BOX */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
+              <div className="cloud-config" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e40af' }}>
                     <input
@@ -812,7 +1082,7 @@ export default function LinkedInWorkspace() {
                 </div>
 
                 {/* SHOW CLOUD AI CONTROLS WHEN BROWSER AI IS UNCHECKED OR AS FALLBACK */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div className="cloud-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
                       Cloud AI Provider
@@ -873,7 +1143,7 @@ export default function LinkedInWorkspace() {
                 </div>
               </div>
 
-              <button 
+              <button className="generate-button"
                 onClick={generateMultiVariants} 
                 disabled={isGenerating}
                 style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
@@ -884,7 +1154,7 @@ export default function LinkedInWorkspace() {
 
               {/* VARIANTS DISPLAY */}
               {variants.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                <div className="variants-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
                   <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED VARIANTS:</span>
                   {variants.map((v) => (
                     <div key={v.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
@@ -924,7 +1194,7 @@ export default function LinkedInWorkspace() {
             </div>
 
             {/* CANVAS EDITOR */}
-            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div className="workspace-card editor-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
                 <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>2. Post Canvas Editor</span>
                 <span style={{ fontSize: '11px', color: plainText.length > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: plainText.length > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
@@ -933,7 +1203,7 @@ export default function LinkedInWorkspace() {
               </div>
 
               {editor && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <div className="editor-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <button
                       type="button"
@@ -1000,12 +1270,12 @@ export default function LinkedInWorkspace() {
                 </div>
               )}
 
-              <div style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative' }}>
+              <div className="editor-surface" style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative' }}>
                 <EditorContent editor={editor} />
               </div>
 
               {attachedImageUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                <div className="attachment-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
                   <span style={{ fontSize: '12px', fontWeight: '600', color: '#334155' }}>🖼️ Attached Canvas Image:</span>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
@@ -1025,7 +1295,7 @@ export default function LinkedInWorkspace() {
                 </div>
               )}
 
-              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div className="post-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={handleManualPost}
                   style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
@@ -1046,16 +1316,16 @@ export default function LinkedInWorkspace() {
           </div>
 
           {/* RIGHT COLUMN: PREVIEW */}
-          <div style={{ position: 'sticky', top: '24px' }}>
-            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-              <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div className="preview-column" style={{ position: 'sticky', top: '24px' }}>
+            <div className="preview-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+              <div className="preview-header" style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Canvas
                 </span>
                 <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
               </div>
 
-              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div className="preview-content" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                     <Building2 size={20} />
@@ -1071,7 +1341,7 @@ export default function LinkedInWorkspace() {
                   </div>
                 </div>
 
-                <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                <div className="preview-body" style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
                   {editorHtml && editorHtml !== '<p></p>' ? (
                     <div dangerouslySetInnerHTML={{ __html: editorHtml }} />
                   ) : (
@@ -1079,7 +1349,7 @@ export default function LinkedInWorkspace() {
                   )}
                 </div>
 
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                <div className="preview-footer" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
                     <span style={{ fontWeight: '600' }}>1,420</span>
