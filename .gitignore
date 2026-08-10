@@ -1,0 +1,25 @@
+# Python
+.venv/
+server/.venv/
+__pycache__/
+*.py[cod]
+*.pyo
+
+# Environment / secrets
+.env
+.env.*
+!.env.example
+
+# Node
+node_modules/
+UX/node_modules/
+
+# Vite
+UX/dist/
+
+# OS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/

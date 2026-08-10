@@ -1,0 +1,18 @@
+{
+  "projects": {
+    "default": "myfinappuserreg"
+  },
+  "targets": {
+    "myfinappuserreg": {
+      "hosting": {
+        "main-site": [
+          "aitools-sunarc-finance"
+        ],
+        "app2": [
+          "entAInavigator"
+        ]
+      }
+    }
+  },
+  "etags": {}
+}
