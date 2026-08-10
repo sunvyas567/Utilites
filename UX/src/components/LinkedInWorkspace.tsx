@@ -509,6 +509,7 @@ export default function LinkedInWorkspace() {
       const attemptCloudVariant = async (styleFormat: 'story' | 'list'): Promise<CloudAiResult> => {
         const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, selectedCta, styleFormat);
         const start = performance.now();
+        console.log("PROMPT:",generatedPrompt);
 
         const response = await fetch(`${BACKEND_URL}/api/v1/llm/invoke`, {
           method: 'POST',
@@ -540,6 +541,7 @@ export default function LinkedInWorkspace() {
         }
 
         const serverData = await response.json();
+        console.log("serverData",serverData);
         details.model = serverData.model || details.model;
         details.usage = serverData.usage || undefined;
         details.rateLimit = serverData.rate_limit || serverData.rateLimit || undefined;
