@@ -176,14 +176,14 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
         return build_generic_llm_response(False, provider, payload.model, error=f"No API key provided for {provider}. Please enter a valid key.")
 
     # 2. Gemini direct REST fallback (Fastest & direct path for Gemini)
-    #if provider in ("gemini", "google"):
-    #    requested_model = payload.model or "gemini-2.5-flash"
-    #    candidates = [requested_model] + [m for m in get_model_candidates() if m != requested_model]
-    #    success, text, used_model, err = try_gemini_generation(api_key, payload.prompt, candidates)
-    #    if success:
-    #        return build_generic_llm_response(
-    #            True, provider="gemini", model=used_model, text=text, meta={"source": "gemini-rest"}
-    #        )
+    if provider in ("gemini", "google"):
+        requested_model = payload.model or "gemini-2.5-flash"
+        candidates = [requested_model] + [m for m in get_model_candidates() if m != requested_model]
+        success, text, used_model, err = try_gemini_generation(api_key, payload.prompt, candidates)
+        if success:
+            return build_generic_llm_response(
+                True, provider="gemini", model=used_model, text=text, meta={"source": "gemini-rest"}
+            )
 
     # 3. Universal Multi-Provider execution via LiteLLM
     try:
