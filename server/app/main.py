@@ -113,7 +113,7 @@ def try_gemini_generation(api_key: str, prompt: str, model_candidates: list[str]
         "generationConfig": {
             "temperature": 0.7,
             "topP": 0.95,
-            "maxOutputTokens": 800,
+            "maxOutputTokens": 4096,
         },
     }
 
@@ -126,6 +126,7 @@ def try_gemini_generation(api_key: str, prompt: str, model_candidates: list[str]
                 payload_json = response.json()
                 text = payload_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
                 if text:
+                    print("text : output - ",text)
                     return True, text, model_name, None
                 last_error = "Gemini returned an empty response."
                 continue
@@ -156,10 +157,11 @@ def build_generic_llm_response(success: bool, provider: str, model: Optional[str
 
 async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationResponse:
     provider = payload.provider.lower()
-    
+
+    #print("inside invike_cloud 1", flush=True)
     if not provider or provider == "browser":
         return build_generic_llm_response(False, "cloud", payload.model, error="Browser execution must be handled on client-side.")
-
+    #print("inside invike_cloud 2", flush=True)
     # 1. Resolve API Key: User key takes priority, then env vars
     api_key = payload.api_key
     if not api_key:
@@ -169,19 +171,19 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
             api_key = os.getenv("OPENAI_API_KEY")
         elif provider == "anthropic":
             api_key = os.getenv("ANTHROPIC_API_KEY")
-
+    #print(f"inside invike_cloud api key {api_key} provider: {provider}", flush=True)
     if not api_key:
         return build_generic_llm_response(False, provider, payload.model, error=f"No API key provided for {provider}. Please enter a valid key.")
 
     # 2. Gemini direct REST fallback (Fastest & direct path for Gemini)
-    if provider in ("gemini", "google"):
-        requested_model = payload.model or "gemini-2.5-flash"
-        candidates = [requested_model] + [m for m in get_model_candidates() if m != requested_model]
-        success, text, used_model, err = try_gemini_generation(api_key, payload.prompt, candidates)
-        if success:
-            return build_generic_llm_response(
-                True, provider="gemini", model=used_model, text=text, meta={"source": "gemini-rest"}
-            )
+    #if provider in ("gemini", "google"):
+    #    requested_model = payload.model or "gemini-2.5-flash"
+    #    candidates = [requested_model] + [m for m in get_model_candidates() if m != requested_model]
+    #    success, text, used_model, err = try_gemini_generation(api_key, payload.prompt, candidates)
+    #    if success:
+    #        return build_generic_llm_response(
+    #            True, provider="gemini", model=used_model, text=text, meta={"source": "gemini-rest"}
+    #        )
 
     # 3. Universal Multi-Provider execution via LiteLLM
     try:
@@ -213,6 +215,28 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
                 "total_tokens": getattr(usage, "total_tokens", None),
             }
 
+        # ==================== 🐛 DEBUG LOG START ====================
+        # finish_reason = "N/A"
+        #if getattr(response, "choices", None) and len(response.choices) > 0:
+        #    finish_reason = getattr(response.choices[0], "finish_reason", "N/A")
+
+        #print("\n" + "=" * 65, flush=True)
+        #print("🐛 [DEBUG LOG] CLOUD AI / LITELLM RESPONSE METRICS", flush=True)
+        #print("=" * 65, flush=True)
+        #print(f"Provider / Formatted Model : {formatted_model}", flush=True)
+        #print(f"Params Sent in Payload    : {payload.params}", flush=True)
+        #print(f"Finish Reason             : {finish_reason}", flush=True)
+        #print(f"Response Character Length : {len(text)}", flush=True)
+        #if usage_payload:
+        #    print(f"Prompt Tokens             : {usage_payload.get('prompt_tokens')}", flush=True)
+        #    print(f"Completion (Output) Tokens: {usage_payload.get('completion_tokens')}", flush=True)
+        #    print(f"Total Tokens              : {usage_payload.get('total_tokens')}", flush=True)
+        #print("-" * 65, flush=True)
+        #rint(f"RESPONSE START (First 150 chars):\n{text[:150]!r}", flush=True)
+        #print("-" * 65, flush=True)
+        #print(f"RESPONSE END   (Last 150 chars) :\n{text[-150:]!r}", flush=True)
+        #rint("=" * 65 + "\n", flush=True)
+        # ==================== 🐛 DEBUG LOG END ====================== # ==================== 🐛 DEBUG LOG END ======================
         return build_generic_llm_response(
             True,
             provider=provider,
@@ -222,6 +246,7 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
             meta={"source": "litellm", "provider": provider},
         )
     except Exception as exc:
+        #print("Exception Occured", flush=True)
         return build_generic_llm_response(False, provider, payload.model, error=str(exc))
 
 @app.post("/api/v1/llm/invoke", response_model=LLMInvocationResponse)
