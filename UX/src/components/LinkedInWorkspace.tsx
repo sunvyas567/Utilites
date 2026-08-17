@@ -204,19 +204,17 @@ const buildGenerationPrompt = (
   topicText: string,
   goal: string,
   tone: string,
-  cta: string,
   styleFormat: 'story' | 'list'
 ): string => {
   const goalPrompt = isGeneralGoal(goal) ? 'update' : `${goal} post`;
   const tonePrompt = tone === 'General / Custom' ? 'authentic' : tone;
 
   const formatInstructions = styleFormat === 'story'
-    ? 'Write in clear narrative paragraph form with strong hook sentences. Do not use bullet points. Make it polished, complete, and easy to read. Include a strong opening, a meaningful middle, and a clear call to action.'
-    : 'Format the post as a polished list-driven LinkedIn update with one opening paragraph, then 3 short takeaway bullets starting with "🔹 ", and a closing line with the CTA. Make it feel complete and professional.';
+    ? 'Write in clear narrative paragraph form with strong hook sentences. Do not use bullet points. Make it polished, complete, and easy to read. Include a strong opening, meaningful middle, and natural conclusion.'
+    : 'Format the post as a polished list-driven LinkedIn update with one opening paragraph, then 3 short takeaway bullets starting with "🔹 ", and a concise closing line. Make it feel complete and professional.';
 
   return `Write one high-converting LinkedIn ${goalPrompt}.
 Tone: ${tonePrompt}.
-Call to Action: ${cta}.
 Context / Key Points: ${topicText || 'General industry insight'}.
 Formatting Rule: ${formatInstructions}
 Keep the total length rich and complete, around 250-450 words. Return plain text only, without commentary or labels.`;
@@ -226,10 +224,10 @@ export const generateWithBrowserAi = async (
   topicText: string,
   goal: string,
   tone: string,
-  cta: string,
-  styleFormat: 'story' | 'list'
+  styleFormat: 'story' | 'list',
+  onChunk?: (text: string) => void
 ): Promise<BrowserAiResult> => {
-  const prompt = buildGenerationPrompt(topicText, goal, tone, cta, styleFormat);
+  const prompt = buildGenerationPrompt(topicText, goal, tone, styleFormat);
   const start = performance.now();
 
   const details: VariantDetails = {
@@ -247,7 +245,34 @@ export const generateWithBrowserAi = async (
     }
 
     let result: any = null;
-    if (typeof session.prompt === 'function') {
+    let accumulated = '';
+
+    // Prefer browser-native streaming when available.
+    if (typeof session.promptStreaming === 'function') {
+      const stream = await session.promptStreaming(prompt);
+      for await (const chunk of stream as any) {
+        const piece = typeof chunk === 'string'
+          ? chunk
+          : typeof chunk?.text === 'string'
+          ? chunk.text
+          : typeof chunk?.outputText === 'string'
+          ? chunk.outputText
+          : typeof chunk?.content === 'string'
+          ? chunk.content
+          : typeof chunk?.delta === 'string'
+          ? chunk.delta
+          : '';
+
+        if (piece) {
+          accumulated += piece;
+          onChunk?.(accumulated);
+        }
+
+        if (chunk?.usage) details.usage = chunk.usage;
+        if (chunk?.model || chunk?.modelId) details.model = chunk.model || chunk.modelId;
+      }
+      result = accumulated;
+    } else if (typeof session.prompt === 'function') {
       result = await session.prompt(prompt);
     } else if (typeof session.generateContent === 'function') {
       result = await session.generateContent(prompt);
@@ -264,10 +289,10 @@ export const generateWithBrowserAi = async (
       ? result.outputText
       : typeof result?.content === 'string'
       ? result.content
-      : '';
+      : accumulated;
 
-    details.model = result?.model || result?.modelId || result?.provider || 'browser';
-    details.usage = result?.usage || result?.usageStats || result?.tokenUsage || undefined;
+    details.model = result?.model || result?.modelId || result?.provider || details.model || 'browser';
+    details.usage = result?.usage || result?.usageStats || result?.tokenUsage || details.usage || undefined;
     details.rateLimit = result?.rate_limit || result?.rateLimit || undefined;
     details.success = Boolean(text?.trim());
     if (!details.success) {
@@ -286,18 +311,20 @@ export const generateWithBrowserAi = async (
 export default function LinkedInWorkspace() {
   const [showAuthConfig, setShowAuthConfig] = useState(false);
   const [prompt, setPrompt] = useState('');
-  const [selectedGoal, setSelectedGoal] = useState<string>('General / Context');
   const [selectedTone, setSelectedTone] = useState<string>('Conversational');
-  const [selectedCta, setSelectedCta] = useState<string>('Visit Link');
   
   // Cloud Provider & API Key States
   const [cloudProvider, setCloudProvider] = useState<string>('gemini');
   const [cloudModel, setCloudModel] = useState<string>('gemini-2.5-flash');
   const [cloudApiKey, setCloudApiKey] = useState<string>('');
+  const [customProvider, setCustomProvider] = useState<string>('');
+  const [customModel, setCustomModel] = useState<string>('');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
 
   const [variants, setVariants] = useState<VariantOption[]>([]);
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
+  const [generationProgress, setGenerationProgress] = useState<number>(0);
+  const [generationStage, setGenerationStage] = useState<string>('');
   const [browserAiStatus, setBrowserAiStatus] = useState<'checking' | 'ready' | 'unavailable'>('checking');
   const [useBrowserAi, setUseBrowserAi] = useState<boolean>(true);
   const [generationMode, setGenerationMode] = useState<'idle' | 'browser' | 'cloud' | 'template'>('idle');
@@ -312,7 +339,6 @@ export default function LinkedInWorkspace() {
   const [attachedImageUrl, setAttachedImageUrl] = useState<string | null>(null);
   const [statusMessage, setStatusMessage] = useState<{ type: 'success' | 'error' | 'info'; text: string } | null>(null);
 
-  const objectivesList = ['General / Context','Product Launch', 'Thought Leadership', 'Technical Architecture', 'Hiring'];
   const tonesList = ['General / Custom','Conversational', 'Authoritative', 'Technical' ];
   const emojiAndSymbolsList = ['🔹', '▸', '▪', '✅', '⚡', '🚀', '💡', '📈', '🔥', '💬'];
 
@@ -322,8 +348,13 @@ export default function LinkedInWorkspace() {
     const matched = CLOUD_PROVIDERS.find((p) => p.id === providerId);
     if (matched) {
       setCloudModel(matched.defaultModel);
+    } else {
+      setCloudModel('');
     }
   };
+
+  const effectiveProvider = cloudProvider === 'custom' ? customProvider.trim() : cloudProvider;
+  const effectiveModel = cloudProvider === 'custom' ? customModel.trim() : cloudModel;
 
   const detectGoalFromPrompt = (text: string): string => {
     const normalized = text.toLowerCase();
@@ -483,14 +514,34 @@ export default function LinkedInWorkspace() {
     }
   };
 
+  const updateGenerationProgress = (progress: number, stage: string) => {
+    setGenerationProgress(Math.max(0, Math.min(100, progress)));
+    setGenerationStage(stage);
+  };
+
   const generateMultiVariants = async () => {
     setIsGenerating(true);
-    const contextText = prompt || (!isGeneralGoal(selectedGoal) ? selectedGoal : 'General Corporate Update');
-    const computedGoal = isGeneralGoal(selectedGoal) ? detectGoalFromPrompt(contextText) : selectedGoal;
+    setVariants([]);
+    updateGenerationProgress(5, 'Preparing AI generation...');
+    const contextText = prompt.trim() || 'General Corporate Update';
+    const computedGoal = detectGoalFromPrompt(contextText);
     const computedTone = selectedTone === 'Conversational' ? detectToneFromPrompt(contextText) : selectedTone;
 
-    if (isGeneralGoal(selectedGoal) && computedGoal !== selectedGoal) setSelectedGoal(computedGoal);
-    if (selectedTone === 'Conversational' && computedTone !== selectedTone) setSelectedTone(computedTone);
+    if (cloudProvider === 'custom' && (!customProvider.trim() || !customModel.trim())) {
+      setStatusMessage({ type: 'error', text: 'Please enter both a custom AI provider and model.' });
+      setIsGenerating(false);
+      setGenerationProgress(0);
+      setGenerationStage('');
+      return;
+    }
+
+    const createVariant = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
+      id,
+      title,
+      badge: details?.success ? (details.provider === 'browser' ? getBrowserAiModelName() : `Cloud AI (${details.provider})`) : 'Generating...',
+      contentHtml: formatToHtml(text, id === 'v2'),
+      details,
+    });
 
     try {
       const browserSession = useBrowserAi ? await getBrowserAiSession() : null;
@@ -501,56 +552,144 @@ export default function LinkedInWorkspace() {
       let finalMode: 'browser' | 'cloud' | 'template' = 'template';
 
       if (useBrowserAi && browserSession) {
-        storyBrowser = await generateWithBrowserAi(contextText, computedGoal, computedTone, selectedCta, 'story');
-        listBrowser = await generateWithBrowserAi(contextText, computedGoal, computedTone, selectedCta, 'list');
+        updateGenerationProgress(12, 'Browser AI ready — generating variants...');
+
+        updateGenerationProgress(20, 'Browser AI — streaming Narrative variant...');
+        storyBrowser = await generateWithBrowserAi(
+          contextText, computedGoal, computedTone, 'story',
+          (partial) => {
+            const progress = Math.min(45, 20 + Math.floor(partial.length / 30));
+            updateGenerationProgress(progress, 'Browser AI — streaming Narrative variant...');
+          }
+        );
+        updateGenerationProgress(50, 'Browser AI — Narrative variant complete...');
+
+        updateGenerationProgress(55, 'Browser AI — streaming Takeaways variant...');
+        listBrowser = await generateWithBrowserAi(
+          contextText, computedGoal, computedTone, 'list',
+          (partial) => {
+            const progress = Math.min(80, 55 + Math.floor(partial.length / 30));
+            updateGenerationProgress(progress, 'Browser AI — streaming Takeaways variant...');
+          }
+        );
+        updateGenerationProgress(82, 'Browser AI — Takeaways variant complete...');
       }
 
-      // Cloud Variant Call with user provider & API key
-      const attemptCloudVariant = async (styleFormat: 'story' | 'list'): Promise<CloudAiResult> => {
-        const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, selectedCta, styleFormat);
+      const streamCloudVariant = async (styleFormat: 'story' | 'list', variantId: string): Promise<CloudAiResult> => {
+        const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, styleFormat);
         const start = performance.now();
-
-        const response = await fetch(`${BACKEND_URL}/api/v1/llm/invoke`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            provider: cloudProvider,
-            model: cloudModel,
-            prompt: generatedPrompt,
-            api_key: cloudApiKey || undefined,
-            prefer_browser: false,
-            prefer_cloud: true,
-            params: { temperature: 0.7, max_tokens: 4096 },
-          }),
-        });
-
-        const end = performance.now();
         const details: VariantDetails = {
-          provider: cloudProvider,
-          model: cloudModel,
+          provider: effectiveProvider || cloudProvider,
+          model: effectiveModel || undefined,
           success: false,
           params: { temperature: 0.7, max_tokens: 4096 },
-          timeMs: Math.round(end - start),
+          timeMs: 0,
         };
+        let accumulated = '';
 
-        if (!response.ok) {
-          const errorBody = await response.text();
-          details.error = `Cloud API failure (${response.status}): ${errorBody}`;
-          return { text: '', details };
+        try {
+          const response = await fetch(`${BACKEND_URL}/api/v1/llm/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            body: JSON.stringify({
+              provider: effectiveProvider,
+              model: effectiveModel,
+              prompt: generatedPrompt,
+              api_key: cloudApiKey || undefined,
+              prefer_browser: false,
+              prefer_cloud: true,
+              params: { temperature: 0.7, max_tokens: 4096 },
+            }),
+          });
+
+          if (!response.ok || !response.body) {
+            const errorBody = await response.text();
+            details.error = `Cloud streaming API failure (${response.status}): ${errorBody}`;
+            details.timeMs = Math.round(performance.now() - start);
+            return { text: '', details };
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          const applyStreamingText = () => {
+            const title = styleFormat === 'story'
+              ? `📖 ${computedGoal} (Narrative Hook)`
+              : `📋 ${computedGoal} (Bulleted Takeaways)`;
+            const streamingDetails = { ...details, success: Boolean(accumulated.trim()), timeMs: Math.round(performance.now() - start) };
+            setVariants((current) => {
+              const existing = current.filter((v) => v.id !== variantId);
+              const next = [...existing, createVariant(variantId, title, accumulated, streamingDetails)];
+              return next.sort((a, b) => a.id.localeCompare(b.id));
+            });
+          };
+
+          const consumeEvent = (eventBlock: string) => {
+            const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
+            if (!dataLines.length) return;
+            const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
+            if (!data || data === '[DONE]') return;
+
+            let chunk: any = data;
+            try { chunk = JSON.parse(data); } catch { /* plain text SSE */ }
+
+            const delta = typeof chunk === 'string'
+              ? chunk
+              : chunk?.text ?? chunk?.delta ?? chunk?.token ?? chunk?.content ?? chunk?.choices?.[0]?.delta?.content ?? chunk?.choices?.[0]?.text ?? '';
+            if (delta) {
+              accumulated += String(delta);
+              const base = styleFormat === 'story' ? 20 : 55;
+              const cap = styleFormat === 'story' ? 45 : 80;
+              const progress = Math.min(cap, base + Math.floor(accumulated.length / 30));
+              updateGenerationProgress(
+                progress,
+                `Cloud AI — streaming ${styleFormat === 'story' ? 'Narrative' : 'Takeaways'} variant...`
+              );
+              applyStreamingText();
+            }
+            if (chunk?.model) details.model = chunk.model;
+            if (chunk?.provider) details.provider = chunk.provider;
+            if (chunk?.usage) details.usage = chunk.usage;
+            if (chunk?.rate_limit || chunk?.rateLimit) details.rateLimit = chunk.rate_limit || chunk.rateLimit;
+            if (chunk?.error) details.error = String(chunk.error);
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (value) {
+              buffer += decoder.decode(value, { stream: !done });
+              const events = buffer.split(/\r?\n\r?\n/);
+              buffer = events.pop() || '';
+              events.forEach(consumeEvent);
+            }
+            if (done) break;
+          }
+          if (buffer.trim()) consumeEvent(buffer);
+
+          details.timeMs = Math.round(performance.now() - start);
+          details.success = Boolean(accumulated.trim()) && !details.error;
+          if (!details.success && !details.error) details.error = 'Cloud streaming returned no usable text.';
+          applyStreamingText();
+          return { text: accumulated.trim(), details };
+        } catch (error: any) {
+          details.timeMs = Math.round(performance.now() - start);
+          details.error = error?.message || String(error);
+          applyStreamingText();
+          return { text: accumulated.trim(), details };
         }
-
-        const serverData = await response.json();
-        details.model = serverData.model || details.model;
-        details.usage = serverData.usage || undefined;
-        details.rateLimit = serverData.rate_limit || serverData.rateLimit || undefined;
-        details.success = Boolean(serverData.success !== false && serverData.text?.trim());
-        details.error = !details.success ? serverData.error || 'Cloud generation returned no usable text.' : undefined;
-
-        return { text: (serverData.text || '').trim(), details };
       };
 
-      if (!storyBrowser?.details.success) storyCloud = await attemptCloudVariant('story');
-      if (!listBrowser?.details.success) listCloud = await attemptCloudVariant('list');
+      if (!storyBrowser?.details.success) {
+        updateGenerationProgress(20, 'Cloud AI — streaming Narrative variant...');
+        storyCloud = await streamCloudVariant('story', 'v1');
+        updateGenerationProgress(50, 'Cloud AI — Narrative variant complete...');
+      }
+      if (!listBrowser?.details.success) {
+        updateGenerationProgress(55, 'Cloud AI — streaming Takeaways variant...');
+        listCloud = await streamCloudVariant('list', 'v2');
+        updateGenerationProgress(82, 'Cloud AI — Takeaways variant complete...');
+      }
 
       const storyFinal = storyBrowser?.details.success ? storyBrowser : storyCloud;
       const listFinal = listBrowser?.details.success ? listBrowser : listCloud;
@@ -559,46 +698,33 @@ export default function LinkedInWorkspace() {
         finalMode = storyFinal?.details.provider === 'browser' || listFinal?.details.provider === 'browser' ? 'browser' : 'cloud';
       }
 
-      const activeProviderObj = CLOUD_PROVIDERS.find((p) => p.id === cloudProvider);
-      const providerLabel = finalMode === 'browser' 
-        ? `${getBrowserAiModelName()}` 
-        : finalMode === 'cloud' 
-        ? `Cloud AI (${activeProviderObj?.name || cloudProvider})` 
+      const activeProviderLabel = finalMode === 'browser'
+        ? getBrowserAiModelName()
+        : finalMode === 'cloud'
+        ? `Cloud AI (${effectiveProvider || cloudProvider})`
         : 'Template';
 
-      const fallbackGoal = !isGeneralGoal(computedGoal) ? computedGoal : 'Key Update';
-
+      updateGenerationProgress(92, 'Finalizing AI variants...');
       setVariants([
-        {
-          id: 'v1',
-          title: `📖 ${fallbackGoal} (Narrative Hook)`,
-          badge: storyFinal?.details.success ? providerLabel : 'Error',
-          contentHtml: storyFinal?.details.success
-            ? formatToHtml(storyFinal.text, false)
-            : `<div style="color:#991b1b;"><p><strong>AI Response Error</strong></p><p>${storyFinal?.details.error || 'No generated text available.'}</p></div>`,
-          details: storyFinal?.details ?? storyBrowser?.details ?? storyCloud?.details,
-        },
-        {
-          id: 'v2',
-          title: `📋 ${fallbackGoal} (Bulleted Takeaways)`,
-          badge: listFinal?.details.success ? providerLabel : 'Error',
-          contentHtml: listFinal?.details.success
-            ? formatToHtml(listFinal.text, true)
-            : `<div style="color:#991b1b;"><p><strong>AI Response Error</strong></p><p>${listFinal?.details.error || 'No generated text available.'}</p></div>`,
-          details: listFinal?.details ?? listBrowser?.details ?? listCloud?.details,
-        }
+        createVariant('v1', `📖 ${computedGoal} (Narrative Hook)`, storyFinal?.text || '', storyFinal?.details),
+        createVariant('v2', `📋 ${computedGoal} (Bulleted Takeaways)`, listFinal?.text || '', listFinal?.details),
       ]);
 
       setBrowserAiStatus(browserSession ? 'ready' : 'unavailable');
       setGenerationMode(finalMode);
       setStatusMessage({
-        type: 'info',
-        text: finalMode === 'template'
-          ? 'Generated custom draft variants from template.'
-          : `Generated 2 variants via ${providerLabel}.`
+        type: finalMode === 'template' ? 'info' : 'success',
+        text: finalMode === 'template' ? 'Generated custom draft variants from template.' : `Generated 2 variants via ${activeProviderLabel}.`,
       });
+      updateGenerationProgress(100, 'Generation complete');
+      window.setTimeout(() => {
+        setGenerationProgress(0);
+        setGenerationStage('');
+      }, 900);
     } catch (error: any) {
       setStatusMessage({ type: 'error', text: `Variant generation failed: ${error?.message || String(error)}` });
+      setGenerationProgress(0);
+      setGenerationStage('');
     } finally {
       setIsGenerating(false);
     }
@@ -618,293 +744,21 @@ export default function LinkedInWorkspace() {
   };
 
   return (
-    <div className="linkedin-workspace" style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
+    <div style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
       
       <style>{`
         .ProseMirror { outline: none; min-height: 160px; caret-color: #0066c2; }
         .ProseMirror-focused { border-color: #0066c2 !important; box-shadow: 0 0 0 3px rgba(0, 102, 194, 0.15); }
         .ProseMirror ::selection { background-color: #bfdbfe !important; color: #1e3a8a !important; }
-
-        .linkedin-workspace, .linkedin-workspace * { box-sizing: border-box; }
-        .topic-textarea, .editor-surface, .preview-body { overflow-wrap: anywhere; word-break: break-word; }
-        .preview-body img { max-width: 100% !important; height: auto !important; }
-        .preview-card { width: 100%; }
-        .cloud-config, .options-panel, .workspace-card, .preview-card { min-width: 0; }
-        .cloud-grid > div, .cloud-grid select, .cloud-grid input { min-width: 0; max-width: 100%; }
-        .editor-toolbar > div { min-width: 0; }
-        .editor-toolbar button { flex-shrink: 0; }
-
-        @media (max-width: 768px) {
-          .linkedin-workspace {
-            padding: 10px !important;
-          }
-
-          .workspace-container {
-            width: 100% !important;
-            gap: 12px !important;
-          }
-
-          .workspace-header {
-            padding: 12px !important;
-            border-radius: 12px !important;
-            align-items: stretch !important;
-          }
-
-          .workspace-header > div:first-child {
-            min-width: 0 !important;
-            flex: 1 1 100% !important;
-          }
-
-          .workspace-header h1 {
-            font-size: 16px !important;
-            line-height: 1.25 !important;
-          }
-
-          .workspace-header p {
-            font-size: 10px !important;
-            line-height: 1.35 !important;
-          }
-
-          .auth-button {
-            width: 100% !important;
-            justify-content: center !important;
-            padding: 10px 12px !important;
-          }
-
-          .status-message {
-            align-items: flex-start !important;
-            gap: 8px !important;
-          }
-
-          .workspace-grid {
-            grid-template-columns: minmax(0, 1fr) !important;
-            gap: 12px !important;
-          }
-
-          .workspace-left {
-            gap: 12px !important;
-            min-width: 0 !important;
-          }
-
-          .workspace-card {
-            padding: 14px !important;
-            border-radius: 12px !important;
-          }
-
-          .section-header {
-            align-items: flex-start !important;
-            gap: 8px !important;
-          }
-
-          .section-header > span:first-child {
-            min-width: 0 !important;
-            line-height: 1.35 !important;
-          }
-
-          .topic-textarea {
-            min-height: 88px;
-          }
-
-          .options-panel, .cloud-config {
-            padding: 11px !important;
-          }
-
-          .cloud-grid {
-            grid-template-columns: minmax(0, 1fr) !important;
-          }
-
-          .cloud-config > div:first-child {
-            align-items: flex-start !important;
-            gap: 8px !important;
-          }
-
-          .cloud-config > div:first-child > label {
-            min-width: 0 !important;
-            line-height: 1.35 !important;
-          }
-
-          .cloud-config > div:first-child > span {
-            white-space: normal !important;
-            text-align: right !important;
-          }
-
-          .generate-button {
-            width: 100% !important;
-            min-height: 44px !important;
-          }
-
-          .variants-container > div {
-            min-width: 0 !important;
-          }
-
-          .variants-container > div > div:first-child {
-            align-items: flex-start !important;
-            gap: 8px !important;
-            flex-wrap: wrap !important;
-          }
-
-          .variants-container > div > div:first-child > span:first-child {
-            min-width: 0 !important;
-            flex: 1 1 180px !important;
-            overflow-wrap: anywhere !important;
-          }
-
-          .editor-card {
-            padding: 14px !important;
-          }
-
-          .editor-toolbar {
-            align-items: stretch !important;
-            flex-direction: column !important;
-          }
-
-          .editor-toolbar > div:first-child {
-            width: 100% !important;
-            flex-wrap: wrap !important;
-          }
-
-          .editor-toolbar > div:last-child {
-            width: 100% !important;
-            justify-content: flex-start !important;
-            overflow-x: auto !important;
-            -webkit-overflow-scrolling: touch;
-          }
-
-          .editor-surface {
-            padding: 10px !important;
-            min-height: 180px !important;
-          }
-
-          .ProseMirror {
-            min-height: 160px !important;
-            max-width: 100% !important;
-            overflow-wrap: anywhere !important;
-            word-break: break-word !important;
-          }
-
-          .attachment-row {
-            flex-direction: column !important;
-            align-items: stretch !important;
-            gap: 8px !important;
-          }
-
-          .attachment-row > div {
-            width: 100% !important;
-            justify-content: stretch !important;
-          }
-
-          .attachment-row button,
-          .attachment-row a {
-            flex: 1 1 0 !important;
-            justify-content: center !important;
-          }
-
-          .post-actions {
-            flex-direction: column !important;
-            gap: 8px !important;
-          }
-
-          .post-actions button {
-            width: 100% !important;
-            min-height: 46px !important;
-            flex: none !important;
-          }
-
-          .preview-column {
-            position: static !important;
-            width: 100% !important;
-          }
-
-          .preview-header {
-            padding: 10px 12px !important;
-            flex-wrap: wrap !important;
-            gap: 6px !important;
-          }
-
-          .preview-header > span:last-child {
-            white-space: normal !important;
-          }
-
-          .preview-content {
-            padding: 12px !important;
-          }
-
-          .preview-profile {
-            align-items: flex-start !important;
-          }
-
-          .preview-profile > div:last-child {
-            min-width: 0 !important;
-          }
-
-          .preview-profile > div:last-child > div {
-            overflow-wrap: anywhere !important;
-          }
-
-          .preview-footer {
-            flex-wrap: wrap !important;
-            gap: 6px !important;
-          }
-        }
-
-        @media (max-width: 420px) {
-          .linkedin-workspace {
-            padding: 6px !important;
-          }
-
-          .workspace-card {
-            padding: 11px !important;
-          }
-
-          .workspace-header {
-            padding: 10px !important;
-          }
-
-          .workspace-header > div:first-child > div:first-child {
-            width: 36px !important;
-            height: 36px !important;
-            font-size: 18px !important;
-            flex: 0 0 36px !important;
-          }
-
-          .workspace-header h1 {
-            font-size: 14px !important;
-          }
-
-          .workspace-header p {
-            font-size: 9px !important;
-          }
-
-          .section-header {
-            flex-direction: column !important;
-          }
-
-          .section-header > div {
-            width: 100% !important;
-            justify-content: flex-start !important;
-          }
-
-          .editor-toolbar {
-            padding: 7px !important;
-          }
-
-          .preview-header {
-            font-size: 11px !important;
-          }
-
-          .preview-body {
-            font-size: 12px !important;
-          }
-        }
       `}</style>
 
-      <div className="workspace-container" style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
         
         {/* HEADER BAR */}
-        <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '16px 24px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div className="preview-profile" style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: '900', fontSize: '22px' }}>
-              in
+        <header style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '16px 24px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+            <div style={{ width: '42px', height: '42px', backgroundColor: '#0f172a', color: '#ffffff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
+              <Building2 size={22} />
             </div>
             <div>
               <h1 style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>LinkedIn Posts Draft Creator</h1>
@@ -912,19 +766,19 @@ export default function LinkedInWorkspace() {
             </div>
           </div>
 
-          <button className="auth-button"
+          <button 
             onClick={() => setShowAuthConfig(!showAuthConfig)}
             style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '9px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
           >
             <Key size={14} />
-            <span>API Credentials & Auth Info</span>
+            <span>API Credentials & Auth Info for Direct Publishing</span>
           </button>
         </header>
 
         {showAuthConfig && (
           <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '12px' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>Direct API Publishing Credentials</h3>
+              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>API Credentials & Auth Info for Direct Publishing</h3>
               <button onClick={() => setShowAuthConfig(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
             </div>
             <p style={{ fontSize: '12px', color: '#475569', margin: 0, lineHeight: '1.5' }}>
@@ -935,7 +789,7 @@ export default function LinkedInWorkspace() {
         )}
 
         {statusMessage && (
-          <div className="status-message" style={{ 
+          <div style={{ 
             padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
             backgroundColor: statusMessage.type === 'error' ? '#fef2f2' : statusMessage.type === 'success' ? '#ecfdf5' : '#eff6ff',
             color: statusMessage.type === 'error' ? '#991b1b' : statusMessage.type === 'success' ? '#065f46' : '#1e40af',
@@ -946,22 +800,15 @@ export default function LinkedInWorkspace() {
           </div>
         )}
 
-        <div className="workspace-grid" style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(340px, 1fr)', gap: '24px', alignItems: 'start' }}>
+        <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.3fr) minmax(340px, 1fr)', gap: '24px', alignItems: 'start' }}>
           
-          <div className="workspace-left" style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
             
-            <div className="workspace-card generator-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
               
-              <div className="section-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
                 <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
-                <div style={{ display: 'flex', gap: '8px', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                  <span style={{ backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : '#eff6ff', color: browserAiStatus === 'ready' ? '#166534' : '#1d4ed8', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                    {browserAiStatus === 'ready' ? `${getBrowserAiModelName()} Ready` : 'Template Engine Active'}
-                  </span>
-                  <span style={{ backgroundColor: generationMode === 'browser' ? '#fef3c7' : generationMode === 'cloud' ? '#e0f2fe' : '#f3f4f6', color: generationMode === 'browser' ? '#92400e' : generationMode === 'cloud' ? '#075985' : '#374151', padding: '2px 8px', borderRadius: '12px', fontSize: '11px', fontWeight: '700' }}>
-                    {generationMode === 'browser' ? 'Final: Browser AI' : generationMode === 'cloud' ? 'Final: Cloud' : generationMode === 'template' ? 'Final: Template' : 'Final: Pending'}
-                  </span>
-                </div>
+
               </div>
 
               <div>
@@ -989,7 +836,7 @@ export default function LinkedInWorkspace() {
                 <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
                   Add Additional context or Type your topic details directly
                 </label>
-                <textarea className="topic-textarea"
+                <textarea 
                   value={prompt}
                   onChange={(e) => setPrompt(e.target.value)}
                   placeholder="Speak or type notes here..."
@@ -998,30 +845,7 @@ export default function LinkedInWorkspace() {
                 />
               </div>
 
-              {/* PREDEFINED PILLS */}
               <div className="options-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Select Preferred Objective
-                  </label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {objectivesList.map((goal) => (
-                      <button
-                        key={goal}
-                        onClick={() => setSelectedGoal(goal)}
-                        style={{
-                          padding: '5px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
-                          backgroundColor: selectedGoal === goal ? '#0066c2' : '#ffffff',
-                          color: selectedGoal === goal ? '#ffffff' : '#334155',
-                          boxShadow: '0 1px 2px rgba(0,0,0,0.05)'
-                        }}
-                      >
-                        {goal}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-
                 <div>
                   <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
                     Select Tone
@@ -1030,9 +854,10 @@ export default function LinkedInWorkspace() {
                     {tonesList.map((tone) => (
                       <button
                         key={tone}
+                        type="button"
                         onClick={() => setSelectedTone(tone)}
                         style={{
-                          padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
+                          padding: '5px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
                           backgroundColor: selectedTone === tone ? '#0f172a' : '#ffffff',
                           color: selectedTone === tone ? '#ffffff' : '#475569'
                         }}
@@ -1042,31 +867,10 @@ export default function LinkedInWorkspace() {
                     ))}
                   </div>
                 </div>
-
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Call To Action (CTA) Style
-                  </label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {['Visit Link', 'Drop Comment', 'DM Connect'].map((cta) => (
-                      <button
-                        key={cta}
-                        onClick={() => setSelectedCta(cta)}
-                        style={{
-                          padding: '4px 10px', borderRadius: '6px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
-                          backgroundColor: selectedCta === cta ? '#4f46e5' : '#ffffff',
-                          color: selectedCta === cta ? '#ffffff' : '#475569'
-                        }}
-                      >
-                        {cta}
-                      </button>
-                    ))}
-                  </div>
-                </div>
               </div>
 
               {/* CLOUD AI PROVIDER & KEYS CONFIGURATION BOX */}
-              <div className="cloud-config" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
                   <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e40af' }}>
                     <input
@@ -1082,7 +886,7 @@ export default function LinkedInWorkspace() {
                 </div>
 
                 {/* SHOW CLOUD AI CONTROLS WHEN BROWSER AI IS UNCHECKED OR AS FALLBACK */}
-                <div className="cloud-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
                   <div>
                     <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
                       Cloud AI Provider
@@ -1095,6 +899,7 @@ export default function LinkedInWorkspace() {
                       {CLOUD_PROVIDERS.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
                       ))}
+                      <option value="custom">Custom Provider</option>
                     </select>
                   </div>
 
@@ -1110,9 +915,23 @@ export default function LinkedInWorkspace() {
                       {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
                         <option key={m} value={m}>{m}</option>
                       ))}
+                      {cloudProvider === 'custom' && <option value={customModel}>{customModel || 'Enter custom model below'}</option>}
                     </select>
                   </div>
                 </div>
+
+                {cloudProvider === 'custom' && (
+                  <div className="cloud-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Provider ID / Name</label>
+                      <input value={customProvider} onChange={(e) => setCustomProvider(e.target.value)} placeholder="e.g. groq, mistral, deepseek" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }} />
+                    </div>
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Model ID</label>
+                      <input value={customModel} onChange={(e) => { setCustomModel(e.target.value); setCloudModel(e.target.value); }} placeholder="e.g. llama-3.3-70b-versatile" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }} />
+                    </div>
+                  </div>
+                )}
 
                 {/* MASKED API KEY INPUT */}
                 <div>
@@ -1143,7 +962,7 @@ export default function LinkedInWorkspace() {
                 </div>
               </div>
 
-              <button className="generate-button"
+              <button 
                 onClick={generateMultiVariants} 
                 disabled={isGenerating}
                 style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
@@ -1152,10 +971,44 @@ export default function LinkedInWorkspace() {
                 <span>{isGenerating ? 'Generating Variants...' : 'Generate Content Variants'}</span>
               </button>
 
+              {/* AI GENERATION PROGRESS */}
+              {generationProgress > 0 && (
+                <div style={{ backgroundColor: '#ffffff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '12px', marginTop: '2px' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155' }}>
+                      {generationStage || 'Generating AI variants...'}
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>
+                      {generationProgress}%
+                    </span>
+                  </div>
+                  <div
+                    role="progressbar"
+                    aria-valuenow={generationProgress}
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-label={generationStage || 'AI generation progress'}
+                    style={{ height: '8px', width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}
+                  >
+                    <div style={{ height: '100%', width: `${generationProgress}%`, backgroundColor: '#2563eb', borderRadius: '999px', transition: 'width 500ms ease-out' }} />
+                  </div>
+                </div>
+              )}
+
               {/* VARIANTS DISPLAY */}
               {variants.length > 0 && (
-                <div className="variants-container" style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-                  <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED VARIANTS:</span>
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED VARIANTS:</span>
+                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                      <span style={{ backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : '#eff6ff', color: browserAiStatus === 'ready' ? '#166534' : '#1d4ed8', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
+                        {browserAiStatus === 'ready' ? `${getBrowserAiModelName()} Ready` : 'Browser AI Unavailable'}
+                      </span>
+                      <span style={{ backgroundColor: generationMode === 'browser' ? '#fef3c7' : generationMode === 'cloud' ? '#e0f2fe' : '#f3f4f6', color: generationMode === 'browser' ? '#92400e' : generationMode === 'cloud' ? '#075985' : '#374151', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
+                        {generationMode === 'browser' ? 'Final: Browser AI' : generationMode === 'cloud' ? 'Final: Cloud' : generationMode === 'template' ? 'Final: Template' : 'Final: Pending'}
+                      </span>
+                    </div>
+                  </div>
                   {variants.map((v) => (
                     <div key={v.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '12px' }}>
@@ -1194,7 +1047,7 @@ export default function LinkedInWorkspace() {
             </div>
 
             {/* CANVAS EDITOR */}
-            <div className="workspace-card editor-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
                 <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>2. Post Canvas Editor</span>
                 <span style={{ fontSize: '11px', color: plainText.length > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: plainText.length > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
@@ -1203,7 +1056,7 @@ export default function LinkedInWorkspace() {
               </div>
 
               {editor && (
-                <div className="editor-toolbar" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <button
                       type="button"
@@ -1270,12 +1123,12 @@ export default function LinkedInWorkspace() {
                 </div>
               )}
 
-              <div className="editor-surface" style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative' }}>
+              <div style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative' }}>
                 <EditorContent editor={editor} />
               </div>
 
               {attachedImageUrl && (
-                <div className="attachment-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
                   <span style={{ fontSize: '12px', fontWeight: '600', color: '#334155' }}>🖼️ Attached Canvas Image:</span>
                   <div style={{ display: 'flex', gap: '8px' }}>
                     <button
@@ -1295,7 +1148,7 @@ export default function LinkedInWorkspace() {
                 </div>
               )}
 
-              <div className="post-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
+              <div style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
                 <button 
                   onClick={handleManualPost}
                   style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
@@ -1316,16 +1169,16 @@ export default function LinkedInWorkspace() {
           </div>
 
           {/* RIGHT COLUMN: PREVIEW */}
-          <div className="preview-column" style={{ position: 'sticky', top: '24px' }}>
-            <div className="preview-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-              <div className="preview-header" style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+          <div style={{ position: 'sticky', top: '24px' }}>
+            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
+              <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
                 <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
                   <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Canvas
                 </span>
                 <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
               </div>
 
-              <div className="preview-content" style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
                   <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
                     <Building2 size={20} />
@@ -1341,7 +1194,7 @@ export default function LinkedInWorkspace() {
                   </div>
                 </div>
 
-                <div className="preview-body" style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
                   {editorHtml && editorHtml !== '<p></p>' ? (
                     <div dangerouslySetInnerHTML={{ __html: editorHtml }} />
                   ) : (
@@ -1349,7 +1202,7 @@ export default function LinkedInWorkspace() {
                   )}
                 </div>
 
-                <div className="preview-footer" style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
                   <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
                     <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
                     <span style={{ fontWeight: '600' }}>1,420</span>
