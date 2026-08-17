@@ -40,7 +40,7 @@ class DraftGenerationRequest(BaseModel):
     prompt: str = Field(..., description="User prompt or topic for content generation.")
     goal: str = Field(..., description="Campaign goal such as Product Launch or Thought Leadership.")
     tone: str = Field(..., description="Desired tone such as Conversational or Technical.")
-    cta: str = Field(..., description="Desired call to action.")
+    cta: Optional[str] = Field(None, description="Optional call to action. The UI may omit this for simpler generation.")
     style_format: Optional[str] = Field(None, description="Optional style hint like story or list.")
 
 class LLMInvocationRequest(BaseModel):
@@ -80,13 +80,53 @@ def build_generation_prompt(payload: DraftGenerationRequest) -> str:
     tone_prompt = payload.tone if payload.tone != "General / Custom" else "authentic"
     style_format = payload.style_format or "story"
 
-    format_instructions = (
-        'Write in clear narrative paragraph form with strong hook sentences. Do not use bullet points.'
-        if style_format == 'story'
-        else 'Format post with: 1) Opening hook paragraph, 2) 3 key takeaway bullet points starting with "🔹 ", 3) Closing call-to-action line.'
+    if style_format == "story":
+        format_instructions = (
+            "Write as a polished narrative LinkedIn post. "
+            "Start with a strong, curiosity-driven hook, develop one clear idea, "
+            "use short readable paragraphs, and finish with a natural closing thought. "
+            "Do not use headings or bullet points."
+        )
+    else:
+        format_instructions = (
+            "Write a polished LinkedIn post with a strong opening hook, "
+            "followed by exactly 3 concise takeaway bullets. "
+            'Each takeaway must start with "🔹 ". '
+            "Finish with a concise, natural closing line."
+        )
+
+    cta_instruction = (
+        f"Optional call to action: {payload.cta}. "
+        "Use it naturally only if it improves the post."
+        if payload.cta
+        else "Do not force a call to action; end naturally."
     )
 
-    return f"Write a high-converting LinkedIn {goal_prompt} post.\nTone: {tone_prompt}.\nCall to Action: {payload.cta}.\nContext / Key Points: {payload.prompt or 'General industry insight'}.\nFormatting Rule: {format_instructions}\nKeep total length under 1500 characters. Return plain text only."
+    return f"""
+You are an expert LinkedIn thought-leadership and enterprise content writer.
+
+Create a high-quality LinkedIn post based on the user's context.
+
+Goal/context category: {goal_prompt}
+Tone: {tone_prompt}
+User context / key points:
+{payload.prompt or "General industry insight"}
+
+{cta_instruction}
+
+Formatting:
+{format_instructions}
+
+Writing requirements:
+- Make the content specific and useful rather than generic.
+- Preserve important facts and ideas from the user's context.
+- Add thoughtful interpretation where appropriate, but do not invent claims, statistics, customers, or results.
+- Use a confident human voice suitable for an experienced technology/business leader.
+- Avoid filler such as "In today's rapidly changing world".
+- Avoid excessive emojis and marketing clichés.
+- Keep the post below 1500 characters unless the user's context clearly requires a little more.
+- Return plain text only.
+""".strip()
 
 def get_model_candidates() -> list[str]:
     preferred = os.getenv("GEMINI_MODEL", "").strip()
@@ -163,14 +203,7 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
         return build_generic_llm_response(False, "cloud", payload.model, error="Browser execution must be handled on client-side.")
     #print("inside invike_cloud 2", flush=True)
     # 1. Resolve API Key: User key takes priority, then env vars
-    api_key = payload.api_key
-    if not api_key:
-        if provider in ("gemini", "google"):
-            api_key = os.getenv("GOOGLE_API_KEY") or os.getenv("GEMINI_API_KEY")
-        elif provider == "openai":
-            api_key = os.getenv("OPENAI_API_KEY")
-        elif provider == "anthropic":
-            api_key = os.getenv("ANTHROPIC_API_KEY")
+    api_key = _resolve_cloud_api_key(provider, payload.api_key)
     #print(f"inside invike_cloud api key {api_key} provider: {provider}", flush=True)
     if not api_key:
         return build_generic_llm_response(False, provider, payload.model, error=f"No API key provided for {provider}. Please enter a valid key.")
@@ -182,7 +215,14 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
         success, text, used_model, err = try_gemini_generation(api_key, payload.prompt, candidates)
         if success:
             return build_generic_llm_response(
-                True, provider="gemini", model=used_model, text=text, meta={"source": "gemini-rest"}
+                True,
+                provider="gemini",
+                model=used_model,
+                text=text,
+                meta={
+                    "source": "gemini-rest",
+                    "character_count": len(text),
+                },
             )
 
     # 3. Universal Multi-Provider execution via LiteLLM
@@ -248,6 +288,161 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
     except Exception as exc:
         #print("Exception Occured", flush=True)
         return build_generic_llm_response(False, provider, payload.model, error=str(exc))
+
+
+def _resolve_cloud_api_key(provider: str, supplied_key: Optional[str]) -> Optional[str]:
+    """Resolve a user supplied key first, then known server environment keys."""
+    if supplied_key:
+        return supplied_key
+
+    provider = (provider or "").lower()
+    env_keys = {
+        "gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+        "google": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+        "openai": ("OPENAI_API_KEY",),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+        "groq": ("GROQ_API_KEY",),
+        "mistral": ("MISTRAL_API_KEY",),
+        "deepseek": ("DEEPSEEK_API_KEY",),
+        "xai": ("XAI_API_KEY",),
+    }
+
+    for env_name in env_keys.get(provider, ()):
+        value = os.getenv(env_name)
+        if value:
+            return value
+
+    return None
+
+
+def _litellm_model_name(provider: str, model: Optional[str]) -> str:
+    """
+    Accept either:
+      model = 'gemini-2.5-flash'
+      provider = 'gemini'
+    or an already-qualified LiteLLM model such as:
+      model = 'openai/gpt-4o'
+    """
+    provider = provider.strip().lower()
+    if model:
+        model = model.strip()
+        if "/" in model:
+            return model
+        return f"{provider}/{model}"
+    return provider
+
+
+@app.post("/api/v1/llm/stream")
+async def stream_llm(payload: LLMInvocationRequest):
+    """
+    Server-Sent Event stream for Cloud AI.
+
+    Event types:
+      data: {"type":"start", ...}
+      data: {"type":"token", "text":"..."}
+      data: {"type":"complete", "text":"...", "usage": {...}}
+      data: {"type":"error", "error":"..."}
+    """
+    from fastapi.responses import StreamingResponse
+    import json
+
+    provider = (payload.provider or "").strip().lower()
+
+    async def event_stream():
+        if payload.prefer_browser:
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Browser AI is handled client-side.'})}\n\n"
+            return
+
+        if payload.prefer_local:
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Local model execution is not implemented.'})}\n\n"
+            return
+
+        if not payload.prefer_cloud:
+            yield f"data: {json.dumps({'type': 'error', 'error': 'Cloud execution is disabled.'})}\n\n"
+            return
+
+        if not provider or provider in ("browser", "local"):
+            yield f"data: {json.dumps({'type': 'error', 'error': 'A valid cloud provider is required.'})}\n\n"
+            return
+
+        api_key = _resolve_cloud_api_key(provider, payload.api_key)
+        if not api_key:
+            yield f"data: {json.dumps({'type': 'error', 'error': f'No API key provided for {provider}.'})}\n\n"
+            return
+
+        model_name = _litellm_model_name(provider, payload.model)
+        started = __import__("time").perf_counter()
+
+        yield f"data: {json.dumps({'type': 'start', 'provider': provider, 'model': payload.model, 'formatted_model': model_name})}\n\n"
+
+        try:
+            import litellm
+
+            params = dict(payload.params or {})
+            # Ask LiteLLM for usage on the final stream event where the provider supports it.
+            params.setdefault("stream_options", {"include_usage": True})
+
+            response = litellm.completion(
+                model=model_name,
+                messages=[{"role": "user", "content": payload.prompt}],
+                api_key=api_key,
+                stream=True,
+                **params,
+            )
+
+            accumulated = ""
+            usage_payload = None
+            finish_reason = None
+
+            for chunk in response:
+                choices = getattr(chunk, "choices", None) or []
+
+                if choices:
+                    choice = choices[0]
+                    delta = getattr(choice, "delta", None)
+                    token = getattr(delta, "content", None) if delta else None
+
+                    if token:
+                        accumulated += token
+                        yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+
+                    finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+
+                usage = getattr(chunk, "usage", None)
+                if usage is not None:
+                    usage_payload = {
+                        "prompt_tokens": getattr(usage, "prompt_tokens", None),
+                        "completion_tokens": getattr(usage, "completion_tokens", None),
+                        "total_tokens": getattr(usage, "total_tokens", None),
+                    }
+
+            elapsed_ms = round((__import__("time").perf_counter() - started) * 1000)
+
+            meta = {
+                "source": "litellm-stream",
+                "provider": provider,
+                "formatted_model": model_name,
+                "finish_reason": finish_reason,
+                "time_ms": elapsed_ms,
+                "character_count": len(accumulated),
+            }
+
+            yield f"data: {json.dumps({'type': 'complete', 'text': accumulated, 'usage': usage_payload, 'meta': meta, 'provider': provider, 'model': payload.model})}\n\n"
+
+        except Exception as exc:
+            print(f"[LLM STREAM ERROR] provider={provider} model={model_name}: {exc}", flush=True)
+            yield f"data: {json.dumps({'type': 'error', 'error': str(exc), 'provider': provider, 'model': payload.model})}\n\n"
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        },
+    )
+
 
 @app.post("/api/v1/llm/invoke", response_model=LLMInvocationResponse)
 async def invoke_llm(payload: LLMInvocationRequest):
