@@ -675,7 +675,26 @@ export default function LinkedInWorkspace() {
         } catch (error: any) {
           details.timeMs = Math.round(performance.now() - start);
           details.error = error?.message || String(error);
-          applyStreamingText();
+
+          // applyStreamingText is scoped to the try block, so update the
+          // streaming variant directly here on error.
+          const title = styleFormat === 'story'
+            ? `📖 ${computedGoal} (Narrative Hook)`
+            : `📋 ${computedGoal} (Bulleted Takeaways)`;
+          const streamingDetails = {
+            ...details,
+            success: Boolean(accumulated.trim()),
+            timeMs: Math.round(performance.now() - start),
+          };
+          setVariants((current) => {
+            const existing = current.filter((v) => v.id !== variantId);
+            const next = [
+              ...existing,
+              createVariant(variantId, title, accumulated, streamingDetails),
+            ];
+            return next.sort((a, b) => a.id.localeCompare(b.id));
+          });
+
           return { text: accumulated.trim(), details };
         }
       };
