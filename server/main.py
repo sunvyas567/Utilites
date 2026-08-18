@@ -47,7 +47,8 @@ class LLMInvocationRequest(BaseModel):
     provider: str = Field(..., description="Provider name such as gemini, openai, anthropic, ollama, browser, local.")
     model: Optional[str] = Field(None, description="Model name for the selected provider.")
     prompt: str = Field(..., description="Input prompt text.")
-    api_key: Optional[str] = Field(None, description="User-supplied API key for cloud providers.")
+    api_key: Optional[str] = Field(None, description="User-supplied API key. Never required in demo mode.")
+    demo_mode: bool = Field(False, description="Use the server-side provider key configured in environment variables.")
     params: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Optional generation parameters.")
     prefer_browser: bool = Field(False, description="Whether to prefer browser AI if available.")
     prefer_local: bool = Field(False, description="Whether to prefer local installed models.")
@@ -66,6 +67,27 @@ class LLMInvocationResponse(BaseModel):
 @app.get("/api/health")
 async def health_check():
     return {"status": "healthy", "service": "linkedin-agent-backend"}
+
+@app.get("/api/v1/llm/config")
+async def llm_config():
+    """Public capability check. Never exposes API keys."""
+    server_providers = []
+    for provider, env_names in {
+        "gemini": ("GOOGLE_API_KEY", "GEMINI_API_KEY"),
+        "openai": ("OPENAI_API_KEY",),
+        "anthropic": ("ANTHROPIC_API_KEY",),
+        "groq": ("GROQ_API_KEY",),
+        "mistral": ("MISTRAL_API_KEY",),
+        "deepseek": ("DEEPSEEK_API_KEY",),
+        "xai": ("XAI_API_KEY",),
+    }.items():
+        if any(os.getenv(name) for name in env_names):
+            server_providers.append(provider)
+    return {
+        "demo_available": bool(server_providers),
+        "demo_providers": server_providers,
+        "message": "Demo Mode uses server-side provider quota." if server_providers else "Demo Mode is not configured on this server.",
+    }
 
 def build_template_fallback(payload: DraftGenerationRequest) -> str:
     topic = payload.prompt.strip() or "your latest update"
@@ -124,7 +146,7 @@ Writing requirements:
 - Use a confident human voice suitable for an experienced technology/business leader.
 - Avoid filler such as "In today's rapidly changing world".
 - Avoid excessive emojis and marketing clichés.
-- Keep the post below 1500 characters unless the user's context clearly requires a little more.
+- Keep the post crisp and useful, around 120-220 words and below 1500 characters unless the user context clearly requires a little more.
 - Return plain text only.
 """.strip()
 
@@ -203,7 +225,7 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
         return build_generic_llm_response(False, "cloud", payload.model, error="Browser execution must be handled on client-side.")
     #print("inside invike_cloud 2", flush=True)
     # 1. Resolve API Key: User key takes priority, then env vars
-    api_key = _resolve_cloud_api_key(provider, payload.api_key)
+    api_key = _resolve_cloud_api_key(provider, payload.api_key, payload.demo_mode)
     #print(f"inside invike_cloud api key {api_key} provider: {provider}", flush=True)
     if not api_key:
         return build_generic_llm_response(False, provider, payload.model, error=f"No API key provided for {provider}. Please enter a valid key.")
@@ -290,10 +312,8 @@ async def invoke_litellm_cloud(payload: LLMInvocationRequest) -> LLMInvocationRe
         return build_generic_llm_response(False, provider, payload.model, error=str(exc))
 
 
-def _resolve_cloud_api_key(provider: str, supplied_key: Optional[str]) -> Optional[str]:
-    """Resolve a user supplied key first, then known server environment keys."""
-    if supplied_key:
-        return supplied_key
+def _resolve_server_api_key(provider: str) -> Optional[str]:
+    """Resolve only the server-side environment key for Demo Mode."""
 
     provider = (provider or "").lower()
     env_keys = {
@@ -311,8 +331,13 @@ def _resolve_cloud_api_key(provider: str, supplied_key: Optional[str]) -> Option
         value = os.getenv(env_name)
         if value:
             return value
-
     return None
+
+def _resolve_cloud_api_key(provider: str, supplied_key: Optional[str], demo_mode: bool = False) -> Optional[str]:
+    """Resolve a key explicitly: Demo Mode uses server env; user mode uses supplied key only."""
+    if demo_mode:
+        return _resolve_server_api_key(provider)
+    return supplied_key.strip() if supplied_key else None
 
 
 def _litellm_model_name(provider: str, model: Optional[str]) -> str:
@@ -365,7 +390,7 @@ async def stream_llm(payload: LLMInvocationRequest):
             yield f"data: {json.dumps({'type': 'error', 'error': 'A valid cloud provider is required.'})}\n\n"
             return
 
-        api_key = _resolve_cloud_api_key(provider, payload.api_key)
+        api_key = _resolve_cloud_api_key(provider, payload.api_key, payload.demo_mode)
         if not api_key:
             yield f"data: {json.dumps({'type': 'error', 'error': f'No API key provided for {provider}.'})}\n\n"
             return
@@ -519,16 +544,4 @@ async def run_linkedin_campaign(payload: CampaignExecutionRequest):
         "channel": "linkedin",
         "tenant_id": payload.tenant_id,
         "meta": "Message posted successfully."
-    }
-
-@app.get("/api/v1/llm/config")
-async def get_llm_config():
-    return {
-        "demo_available": bool(os.getenv("GOOGLE_API_KEY")),
-        "demo_providers": ["gemini"] if os.getenv("GOOGLE_API_KEY") else [],
-        "message": (
-            "Demo Mode uses server-side provider quota."
-            if os.getenv("GOOGLE_API_KEY")
-            else "Demo Mode is currently unavailable."
-        )
     }
