@@ -157,27 +157,176 @@ const formatToHtml = (rawText: string, isListVariant: boolean): string => {
   return htmlBlocks.join('');
 };
 
-export async function getBrowserAiSession(): Promise<any | null> {
+export type BrowserAiAvailability =
+  | 'checking'
+  | 'ready'
+  | 'downloadable'
+  | 'downloading'
+  | 'unavailable'
+  | 'unsupported'
+  | 'error';
+
+export type BrowserAiCheckResult = {
+  status: BrowserAiAvailability;
+  message: string;
+  availability?: string;
+};
+
+export async function checkBrowserAiAvailability(): Promise<BrowserAiCheckResult> {
   try {
     const globalLM = typeof LanguageModel !== 'undefined'
       ? LanguageModel
       : (typeof window !== 'undefined' ? (window as any).LanguageModel : undefined);
 
     if (globalLM) {
-      const availability = typeof globalLM.availability === 'function' ? await globalLM.availability() : 'readily';
-      if (availability !== 'no' && availability !== 'unavailable') return await globalLM.create();
+      if (typeof globalLM.availability === 'function') {
+        const availability = await globalLM.availability();
+
+        if (availability === 'available' || availability === 'readily') {
+          return { status: 'ready', message: 'Browser AI is ready.', availability };
+        }
+
+        if (availability === 'downloadable') {
+          return {
+            status: 'downloadable',
+            message: 'Browser AI is supported, but the local AI model needs to be downloaded.',
+            availability,
+          };
+        }
+
+        if (availability === 'downloading') {
+          return {
+            status: 'downloading',
+            message: 'Browser AI is downloading the local AI model.',
+            availability,
+          };
+        }
+
+        return {
+          status: 'unavailable',
+          message: 'Browser AI is not available on this browser or device.',
+          availability,
+        };
+      }
+
+      return {
+        status: 'ready',
+        message: 'Browser AI API is available.',
+        availability: 'readily',
+      };
     }
 
-    const aiObj = typeof window !== 'undefined' ? ((window as any).ai || (navigator as any).ai) : null;
+    const aiObj = typeof window !== 'undefined'
+      ? ((window as any).ai || (navigator as any).ai)
+      : null;
+
     if (aiObj?.languageModel) {
-      const caps = typeof aiObj.languageModel.capabilities === 'function' ? await aiObj.languageModel.capabilities() : null;
-      if (!caps || caps.available === 'readily' || caps.available === 'after-download') {
-        return await aiObj.languageModel.create();
+      if (typeof aiObj.languageModel.capabilities === 'function') {
+        const caps = await aiObj.languageModel.capabilities();
+        const available = caps?.available;
+
+        if (available === 'readily') {
+          return { status: 'ready', message: 'Browser AI is ready.', availability: available };
+        }
+
+        if (available === 'after-download' || available === 'downloadable') {
+          return {
+            status: 'downloadable',
+            message: 'Browser AI is supported, but the local AI model needs to be downloaded.',
+            availability: available,
+          };
+        }
+
+        return {
+          status: 'unavailable',
+          message: 'Browser AI is not available on this browser or device.',
+          availability: available,
+        };
+      }
+
+      return {
+        status: 'ready',
+        message: 'Browser AI API is available.',
+        availability: 'readily',
+      };
+    }
+
+    return {
+      status: 'unsupported',
+      message: 'This browser does not expose the required Browser AI API.',
+    };
+  } catch (err: any) {
+    console.warn('Browser AI availability check failed:', err);
+    return {
+      status: 'error',
+      message: err?.message || 'Browser AI could not be checked.',
+    };
+  }
+}
+
+export async function getBrowserAiSession(
+  onDownloadProgress?: (progress: number) => void
+): Promise<any | null> {
+  try {
+    const globalLM = typeof LanguageModel !== 'undefined'
+      ? LanguageModel
+      : (typeof window !== 'undefined' ? (window as any).LanguageModel : undefined);
+
+    if (globalLM) {
+      const availability = typeof globalLM.availability === 'function'
+        ? await globalLM.availability()
+        : 'readily';
+
+      if (
+        availability === 'no' ||
+        availability === 'unavailable' ||
+        availability === 'unsupported'
+      ) {
+        return null;
+      }
+
+      if (typeof globalLM.create === 'function') {
+        const monitor = (monitorObj: any) => {
+          try {
+            monitorObj?.addEventListener?.('downloadprogress', (event: any) => {
+              const progress = Number(event?.loaded ?? event?.progress ?? 0);
+              if (Number.isFinite(progress)) {
+                onDownloadProgress?.(progress <= 1 ? progress * 100 : progress);
+              }
+            });
+          } catch (monitorError) {
+            console.warn('Browser AI download monitor unavailable:', monitorError);
+          }
+        };
+
+        return await globalLM.create({ monitor });
       }
     }
+
+    const aiObj = typeof window !== 'undefined'
+      ? ((window as any).ai || (navigator as any).ai)
+      : null;
+
+    if (aiObj?.languageModel) {
+      const caps = typeof aiObj.languageModel.capabilities === 'function'
+        ? await aiObj.languageModel.capabilities()
+        : null;
+
+      if (
+        caps &&
+        caps.available !== 'readily' &&
+        caps.available !== 'after-download' &&
+        caps.available !== 'downloadable'
+      ) {
+        return null;
+      }
+
+      return await aiObj.languageModel.create();
+    }
   } catch (err) {
-    console.warn("Failed to initialize Chrome AI:", err);
+    console.warn('Failed to initialize Browser AI:', err);
   }
+
   return null;
 }
 
@@ -325,8 +474,13 @@ export default function LinkedInWorkspace() {
   const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationProgress, setGenerationProgress] = useState<number>(0);
   const [generationStage, setGenerationStage] = useState<string>('');
-  const [browserAiStatus, setBrowserAiStatus] = useState<'checking' | 'ready' | 'unavailable'>('checking');
-  const [useBrowserAi, setUseBrowserAi] = useState<boolean>(true);
+  const [browserAiStatus, setBrowserAiStatus] = useState<BrowserAiAvailability>('checking');
+  const [browserAiMessage, setBrowserAiMessage] = useState<string>('Checking Browser AI...');
+  const [browserAiDownloadProgress, setBrowserAiDownloadProgress] = useState<number>(0);
+  const [showBrowserAiHelp, setShowBrowserAiHelp] = useState<boolean>(false);
+  // Auto = use local Browser AI when available, otherwise Cloud AI.
+  const [aiMode, setAiMode] = useState<'auto' | 'cloud'>('auto');
+  const useBrowserAi = aiMode === 'auto';
   const [generationMode, setGenerationMode] = useState<'idle' | 'browser' | 'cloud' | 'template'>('idle');
 
   const [isListening, setIsListening] = useState<boolean>(false);
@@ -448,12 +602,68 @@ export default function LinkedInWorkspace() {
     }
   }, [editor]);
 
+  const checkBrowserAi = async (startModelDownload = false) => {
+    setBrowserAiStatus('checking');
+    setBrowserAiMessage('Checking Browser AI...');
+    setBrowserAiDownloadProgress(0);
+
+    const result = await checkBrowserAiAvailability();
+
+    // Give users a useful explanation on browsers that do not expose
+    // the Browser AI API (for example Safari and Firefox).
+    if (result.status === 'unsupported') {
+      const ua = navigator.userAgent;
+      const browserName = /Firefox/i.test(ua)
+        ? 'Firefox'
+        : /Safari/i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua)
+        ? 'Safari'
+        : /Edg/i.test(ua)
+        ? 'Edge'
+        : /Chrome|Chromium/i.test(ua)
+        ? 'Chrome'
+        : 'this browser';
+
+      const unsupportedMessage =
+        `Browser AI is not available in ${browserName}. ` +
+        `Auto mode will use Cloud AI instead. ` +
+        `For local Browser AI, use a supported desktop Chrome or Edge version.`;
+
+      setBrowserAiStatus('unsupported');
+      setBrowserAiMessage(unsupportedMessage);
+      setShowBrowserAiHelp(true);
+      setStatusMessage({
+        type: 'info',
+        text: `${browserName} does not currently support Browser AI. Cloud AI fallback is available.`
+      });
+      return;
+    }
+
+    setBrowserAiStatus(result.status);
+    setBrowserAiMessage(result.message);
+
+    if (startModelDownload && (result.status === 'downloadable' || result.status === 'downloading')) {
+      setBrowserAiStatus('downloading');
+      setBrowserAiMessage('Browser AI is downloading the local AI model...');
+      try {
+        await getBrowserAiSession((progress) => {
+          setBrowserAiDownloadProgress(Math.round(Math.max(0, Math.min(100, progress))));
+        });
+        const ready = await checkBrowserAiAvailability();
+        setBrowserAiStatus(ready.status === 'ready' ? 'ready' : ready.status);
+        setBrowserAiMessage(
+          ready.status === 'ready'
+            ? 'Browser AI is ready.'
+            : ready.message
+        );
+      } catch (err: any) {
+        setBrowserAiStatus('error');
+        setBrowserAiMessage(err?.message || 'Browser AI model setup failed.');
+      }
+    }
+  };
+
   useEffect(() => {
-    const checkAi = async () => {
-      const session = await getBrowserAiSession();
-      setBrowserAiStatus(session ? 'ready' : 'unavailable');
-    };
-    checkAi();
+    void checkBrowserAi(false);
   }, []);
 
   const handleAddLink = () => {
@@ -544,7 +754,48 @@ export default function LinkedInWorkspace() {
     });
 
     try {
-      const browserSession = useBrowserAi ? await getBrowserAiSession() : null;
+      let browserSession: any | null = null;
+
+      if (useBrowserAi) {
+        const browserCheck = await checkBrowserAiAvailability();
+        setBrowserAiStatus(browserCheck.status);
+        setBrowserAiMessage(browserCheck.message);
+
+        if (browserCheck.status === 'ready' || browserCheck.status === 'downloadable' || browserCheck.status === 'downloading') {
+          updateGenerationProgress(10, browserCheck.status === 'ready'
+            ? 'Browser AI ready — generating variants...'
+            : 'Preparing Browser AI local model...');
+
+          browserSession = await getBrowserAiSession((progress) => {
+            const safeProgress = Math.round(Math.max(0, Math.min(100, progress)));
+            setBrowserAiStatus('downloading');
+            setBrowserAiDownloadProgress(safeProgress);
+            updateGenerationProgress(
+              Math.min(18, 10 + Math.floor(safeProgress * 0.08)),
+              `Browser AI — downloading local model (${safeProgress}%)...`
+            );
+          });
+
+          if (browserSession) {
+            setBrowserAiStatus('ready');
+            setBrowserAiMessage('Browser AI is ready.');
+            setBrowserAiDownloadProgress(100);
+          } else {
+            const failedCheck = await checkBrowserAiAvailability();
+            setBrowserAiStatus(failedCheck.status);
+            setBrowserAiMessage(failedCheck.message);
+          }
+        }
+      }
+
+      if (useBrowserAi && !browserSession) {
+        setBrowserAiStatus((current) => current === 'checking' ? 'unavailable' : current);
+        setBrowserAiMessage((current) => current || 'Browser AI is unavailable; Cloud AI will be used instead.');
+        setStatusMessage({
+          type: 'info',
+          text: 'Browser AI is not ready on this browser/device. Using Cloud AI instead.'
+        });
+      }
       let storyBrowser: BrowserAiResult | null = null;
       let listBrowser: BrowserAiResult | null = null;
       let storyCloud: CloudAiResult | null = null;
@@ -729,7 +980,10 @@ export default function LinkedInWorkspace() {
         createVariant('v2', `📋 ${computedGoal} (Bulleted Takeaways)`, listFinal?.text || '', listFinal?.details),
       ]);
 
-      setBrowserAiStatus(browserSession ? 'ready' : 'unavailable');
+      if (browserSession) {
+        setBrowserAiStatus('ready');
+        setBrowserAiMessage('Browser AI is ready.');
+      }
       setGenerationMode(finalMode);
       setStatusMessage({
         type: finalMode === 'template' ? 'info' : 'success',
@@ -890,30 +1144,61 @@ export default function LinkedInWorkspace() {
 
               {/* CLOUD AI PROVIDER & KEYS CONFIGURATION BOX */}
               <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                  <label style={{ display: 'flex', alignItems: 'center', gap: '8px', fontSize: '12px', fontWeight: '700', color: '#1e40af' }}>
-                    <input
-                      type="checkbox"
-                      checked={useBrowserAi}
-                      onChange={() => setUseBrowserAi((value) => !value)}
-                    />
-                    <span>Prefer Browser Local AI (Gemini Nano)</span>
-                  </label>
-                  <span style={{ fontSize: '11px', color: '#3b82f6', fontWeight: '600' }}>
-                    {!useBrowserAi ? 'Cloud AI Enforced' : 'Cloud Fallback Enabled'}
+                {/* Row 1: AI mode */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '10px',
+                  flexWrap: 'wrap'
+                }}>
+                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
+                    AI Generation Mode
                   </span>
+                  <select
+                    value={aiMode}
+                    onChange={(e) => setAiMode(e.target.value as 'auto' | 'cloud')}
+                    style={{
+                      flex: '1 1 260px',
+                      minWidth: 0,
+                      padding: '7px 9px',
+                      borderRadius: '6px',
+                      border: '1px solid #93c5fd',
+                      backgroundColor: '#ffffff',
+                      color: '#1e3a8a',
+                      fontSize: '11px',
+                      fontWeight: '700'
+                    }}
+                    aria-label="AI generation mode"
+                  >
+                    <option value="auto">Auto — Browser AI → Cloud fallback</option>
+                    <option value="cloud">Cloud AI only</option>
+                  </select>
                 </div>
 
-                {/* SHOW CLOUD AI CONTROLS WHEN BROWSER AI IS UNCHECKED OR AS FALLBACK */}
-                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                  <div>
+                {/* Row 2: Cloud provider + model */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
+                  gap: '10px',
+                  width: '100%'
+                }}>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Cloud AI Provider
+                      Cloud Provider
                     </label>
                     <select
                       value={cloudProvider}
                       onChange={(e) => handleProviderChange(e.target.value)}
-                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', backgroundColor: '#ffffff' }}
+                      style={{
+                        width: '100%',
+                        minWidth: 0,
+                        padding: '8px',
+                        borderRadius: '6px',
+                        border: '1px solid #93c5fd',
+                        fontSize: '12px',
+                        backgroundColor: '#ffffff',
+                        boxSizing: 'border-box'
+                      }}
                     >
                       {CLOUD_PROVIDERS.map((p) => (
                         <option key={p.id} value={p.id}>{p.name}</option>
@@ -922,14 +1207,23 @@ export default function LinkedInWorkspace() {
                     </select>
                   </div>
 
-                  <div>
+                  <div style={{ minWidth: 0 }}>
                     <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
                       Target Model
                     </label>
                     <select
                       value={cloudModel}
                       onChange={(e) => setCloudModel(e.target.value)}
-                      style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', backgroundColor: '#ffffff' }}
+                      style={{
+                        width: '100%',
+                        minWidth: 0,
+                        padding: '8px',
+                        borderRadius: '6px',
+                        border: '1px solid #93c5fd',
+                        fontSize: '12px',
+                        backgroundColor: '#ffffff',
+                        boxSizing: 'border-box'
+                      }}
                     >
                       {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
                         <option key={m} value={m}>{m}</option>
@@ -981,6 +1275,137 @@ export default function LinkedInWorkspace() {
                 </div>
               </div>
 
+              {/* BROWSER AI STATUS / SETUP */}
+              {aiMode === 'auto' && (
+                <div style={{
+                  backgroundColor: browserAiStatus === 'ready' ? '#f0fdf4' : '#fffbeb',
+                  border: `1px solid ${browserAiStatus === 'ready' ? '#bbf7d0' : '#fde68a'}`,
+                  borderRadius: '10px',
+                  padding: '10px 12px',
+                  marginTop: '2px'
+                }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
+                      {browserAiStatus === 'ready'
+                        ? <CheckCircle2 size={15} color="#15803d" />
+                        : <Sparkles size={15} color="#b45309" />}
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#334155' }}>
+                          Browser AI: {browserAiStatus === 'ready' ? 'Ready' : 'Not ready'}
+                        </div>
+                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
+                          {browserAiMessage}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                      {browserAiStatus !== 'ready' && (
+                        <button
+                          type="button"
+                          onClick={() => void checkBrowserAi(true)}
+                          disabled={browserAiStatus === 'checking' || browserAiStatus === 'downloading'}
+                          style={{
+                            border: '1px solid #cbd5e1',
+                            backgroundColor: '#ffffff',
+                            color: '#334155',
+                            borderRadius: '6px',
+                            padding: '5px 8px',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            cursor: browserAiStatus === 'checking' || browserAiStatus === 'downloading' ? 'default' : 'pointer'
+                          }}
+                        >
+                          {browserAiStatus === 'downloading'
+                            ? 'Downloading...'
+                            : browserAiStatus === 'unsupported'
+                            ? 'Check Browser AI'
+                            : 'Check / Set Up'}
+                        </button>
+                      )}
+                      <button
+                        type="button"
+                        onClick={() => setShowBrowserAiHelp((value) => !value)}
+                        style={{
+                          border: 'none',
+                          background: 'transparent',
+                          color: '#2563eb',
+                          fontSize: '10px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          padding: '5px'
+                        }}
+                      >
+                        {showBrowserAiHelp ? 'Hide help' : 'How does this work?'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {browserAiStatus === 'downloading' && (
+                    <div style={{ marginTop: '8px' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b', marginBottom: '4px' }}>
+                        <span>Local AI model download</span>
+                        <span>{browserAiDownloadProgress}%</span>
+                      </div>
+                      <div style={{ height: '6px', width: '100%', backgroundColor: '#e5e7eb', borderRadius: '999px', overflow: 'hidden' }}>
+                        <div style={{
+                          height: '100%',
+                          width: `${browserAiDownloadProgress}%`,
+                          backgroundColor: '#f59e0b',
+                          borderRadius: '999px',
+                          transition: 'width 300ms ease-out'
+                        }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {showBrowserAiHelp && (
+                    <div style={{
+                      marginTop: '9px',
+                      paddingTop: '9px',
+                      borderTop: '1px solid #fde68a',
+                      fontSize: '10px',
+                      lineHeight: '1.5',
+                      color: '#475569'
+                    }}>
+                      <strong style={{ color: '#334155' }}>Browser AI runs locally when supported.</strong>
+                      <div style={{ marginTop: '4px' }}>
+                        You generally do not need to install a separate AI extension for Chrome's built-in AI.
+                        The browser manages the local model download when the API and device are eligible.
+                      </div>
+                      <div style={{ marginTop: '4px' }}>
+                        For the Prompt API, support depends on the browser version, operating system,
+                        device hardware, available storage, and the current Chrome AI rollout.
+                      </div>
+                      <div style={{ marginTop: '5px', fontWeight: '700', color: '#334155' }}>
+                        In Auto mode, the app uses Browser AI when available and automatically falls back to Cloud AI when it is not.
+                      </div>
+                      <div style={{ marginTop: '5px' }}>
+                        For Chrome diagnostics, open <code>chrome://on-device-internals</code> and check the
+                        AI model/event logs.
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {aiMode === 'cloud' && (
+                <div style={{
+                  backgroundColor: '#eff6ff',
+                  border: '1px solid #bfdbfe',
+                  borderRadius: '10px',
+                  padding: '9px 12px',
+                  marginTop: '2px',
+                  fontSize: '10px',
+                  color: '#475569'
+                }}>
+                  <strong style={{ color: '#1e3a8a' }}>Cloud AI only</strong>
+                  <span style={{ marginLeft: '6px' }}>
+                    Browser AI will not be used for this generation.
+                  </span>
+                </div>
+              )}
+
               <button 
                 onClick={generateMultiVariants} 
                 disabled={isGenerating}
@@ -1020,8 +1445,25 @@ export default function LinkedInWorkspace() {
                   <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                     <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED VARIANTS:</span>
                     <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <span style={{ backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : '#eff6ff', color: browserAiStatus === 'ready' ? '#166534' : '#1d4ed8', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
-                        {browserAiStatus === 'ready' ? `${getBrowserAiModelName()} Ready` : 'Browser AI Unavailable'}
+                      <span style={{
+                        backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : browserAiStatus === 'unavailable' ? '#f1f5f9' : '#eff6ff',
+                        color: browserAiStatus === 'ready' ? '#166534' : '#475569',
+                        padding: '3px 8px',
+                        borderRadius: '12px',
+                        fontSize: '10px',
+                        fontWeight: '700'
+                      }}>
+                        {aiMode === 'cloud'
+                          ? 'Browser AI not used'
+                          : browserAiStatus === 'ready'
+                          ? `${getBrowserAiModelName()} Ready`
+                          : browserAiStatus === 'downloading'
+                          ? `Browser AI Downloading ${browserAiDownloadProgress}%`
+                          : browserAiStatus === 'downloadable'
+                          ? 'Browser AI Model Ready to Download'
+                          : browserAiStatus === 'checking'
+                          ? 'Checking Browser AI'
+                          : 'Browser AI Unavailable — Cloud fallback'}
                       </span>
                       <span style={{ backgroundColor: generationMode === 'browser' ? '#fef3c7' : generationMode === 'cloud' ? '#e0f2fe' : '#f3f4f6', color: generationMode === 'browser' ? '#92400e' : generationMode === 'cloud' ? '#075985' : '#374151', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
                         {generationMode === 'browser' ? 'Final: Browser AI' : generationMode === 'cloud' ? 'Final: Cloud' : generationMode === 'template' ? 'Final: Template' : 'Final: Pending'}
