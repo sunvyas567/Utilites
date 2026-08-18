@@ -366,7 +366,7 @@ const buildGenerationPrompt = (
 Tone: ${tonePrompt}.
 Context / Key Points: ${topicText || 'General industry insight'}.
 Formatting Rule: ${formatInstructions}
-Keep the total length rich and complete, around 250-450 words. Return plain text only, without commentary or labels.`;
+Keep the post crisp and useful, around 120-220 words. Return plain text only, without commentary or labels.`;
 };
 
 export const generateWithBrowserAi = async (
@@ -382,7 +382,7 @@ export const generateWithBrowserAi = async (
   const details: VariantDetails = {
     provider: 'browser',
     success: false,
-    params: { temperature: 0.7, max_tokens: 4096 },
+    params: { temperature: 0.7, max_tokens: 1200 },
     timeMs: 0,
   };
 
@@ -479,7 +479,9 @@ export default function LinkedInWorkspace() {
   const [browserAiDownloadProgress, setBrowserAiDownloadProgress] = useState<number>(0);
   const [showBrowserAiHelp, setShowBrowserAiHelp] = useState<boolean>(false);
   // Auto = use local Browser AI when available, otherwise Cloud AI.
-  const [aiMode, setAiMode] = useState<'auto' | 'cloud'>('auto');
+  const [aiMode, setAiMode] = useState<'auto' | 'cloud' | 'demo'>('auto');
+  const [demoAvailable, setDemoAvailable] = useState<boolean>(false);
+  const [demoProviders, setDemoProviders] = useState<string[]>([]);
   const useBrowserAi = aiMode === 'auto';
   const [generationMode, setGenerationMode] = useState<'idle' | 'browser' | 'cloud' | 'template'>('idle');
 
@@ -526,6 +528,23 @@ export default function LinkedInWorkspace() {
     if (/(enterprise|trusted|secure|proven|authority|strategy|confidence)/.test(normalized)) return 'Authoritative';
     return 'Conversational';
   };
+
+  useEffect(() => {
+    let cancelled = false;
+    fetch(`${BACKEND_URL}/api/v1/llm/config`)
+      .then((response) => response.ok ? response.json() : Promise.reject(new Error(`Config check failed (${response.status})`)))
+      .then((config) => {
+        if (!cancelled) {
+          setDemoAvailable(Boolean(config?.demo_available));
+          setDemoProviders(Array.isArray(config?.demo_providers) ? config.demo_providers : []);
+        }
+      })
+      .catch((error) => {
+        console.warn('Demo AI capability check failed:', error);
+        if (!cancelled) setDemoAvailable(false);
+      });
+    return () => { cancelled = true; };
+  }, []);
 
   useEffect(() => {
     const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
@@ -737,6 +756,22 @@ export default function LinkedInWorkspace() {
     const computedGoal = detectGoalFromPrompt(contextText);
     const computedTone = selectedTone === 'Conversational' ? detectToneFromPrompt(contextText) : selectedTone;
 
+    if (aiMode === 'demo' && !demoAvailable) {
+      setStatusMessage({ type: 'error', text: 'Demo Mode is not available because the server-side AI provider is not configured.' });
+      setIsGenerating(false);
+      setGenerationProgress(0);
+      setGenerationStage('');
+      return;
+    }
+
+    if (aiMode === 'cloud' && !cloudApiKey.trim()) {
+      setStatusMessage({ type: 'error', text: 'Please enter your API key for Cloud AI, or select Demo Mode to use the server-side key.' });
+      setIsGenerating(false);
+      setGenerationProgress(0);
+      setGenerationStage('');
+      return;
+    }
+
     if (cloudProvider === 'custom' && (!customProvider.trim() || !customModel.trim())) {
       setStatusMessage({ type: 'error', text: 'Please enter both a custom AI provider and model.' });
       setIsGenerating(false);
@@ -788,6 +823,16 @@ export default function LinkedInWorkspace() {
         }
       }
 
+      if (useBrowserAi && !browserSession && !demoAvailable) {
+        setBrowserAiStatus((current) => current === 'checking' ? 'unavailable' : current);
+        setBrowserAiMessage((current) => current || 'Browser AI is unavailable and Demo Mode is not configured on the server.');
+        setStatusMessage({ type: 'error', text: 'Browser AI is unavailable and server Demo Mode is not configured. Select Cloud AI and enter your API key.' });
+        setIsGenerating(false);
+        setGenerationProgress(0);
+        setGenerationStage('');
+        return;
+      }
+
       if (useBrowserAi && !browserSession) {
         setBrowserAiStatus((current) => current === 'checking' ? 'unavailable' : current);
         setBrowserAiMessage((current) => current || 'Browser AI is unavailable; Cloud AI will be used instead.');
@@ -797,9 +842,7 @@ export default function LinkedInWorkspace() {
         });
       }
       let storyBrowser: BrowserAiResult | null = null;
-      let listBrowser: BrowserAiResult | null = null;
       let storyCloud: CloudAiResult | null = null;
-      let listCloud: CloudAiResult | null = null;
       let finalMode: 'browser' | 'cloud' | 'template' = 'template';
 
       if (useBrowserAi && browserSession) {
@@ -813,17 +856,7 @@ export default function LinkedInWorkspace() {
             updateGenerationProgress(progress, 'Browser AI — streaming Narrative variant...');
           }
         );
-        updateGenerationProgress(50, 'Browser AI — Narrative variant complete...');
-
-        updateGenerationProgress(55, 'Browser AI — streaming Takeaways variant...');
-        listBrowser = await generateWithBrowserAi(
-          contextText, computedGoal, computedTone, 'list',
-          (partial) => {
-            const progress = Math.min(80, 55 + Math.floor(partial.length / 30));
-            updateGenerationProgress(progress, 'Browser AI — streaming Takeaways variant...');
-          }
-        );
-        updateGenerationProgress(82, 'Browser AI — Takeaways variant complete...');
+        updateGenerationProgress(82, 'Browser AI — descriptive draft complete...');
       }
 
       const streamCloudVariant = async (styleFormat: 'story' | 'list', variantId: string): Promise<CloudAiResult> => {
@@ -833,7 +866,7 @@ export default function LinkedInWorkspace() {
           provider: effectiveProvider || cloudProvider,
           model: effectiveModel || undefined,
           success: false,
-          params: { temperature: 0.7, max_tokens: 4096 },
+          params: { temperature: 0.7, max_tokens: 1200 },
           timeMs: 0,
         };
         let accumulated = '';
@@ -846,10 +879,11 @@ export default function LinkedInWorkspace() {
               provider: effectiveProvider,
               model: effectiveModel,
               prompt: generatedPrompt,
-              api_key: cloudApiKey || undefined,
+              api_key: (aiMode === 'cloud') ? (cloudApiKey || undefined) : undefined,
+              demo_mode: aiMode === 'demo' || (aiMode === 'auto' && !browserSession),
               prefer_browser: false,
               prefer_cloud: true,
-              params: { temperature: 0.7, max_tokens: 4096 },
+              params: { temperature: 0.7, max_tokens: 1200 },
             }),
           });
 
@@ -951,21 +985,15 @@ export default function LinkedInWorkspace() {
       };
 
       if (!storyBrowser?.details.success) {
-        updateGenerationProgress(20, 'Cloud AI — streaming Narrative variant...');
+        updateGenerationProgress(20, aiMode === 'demo' ? 'Demo Mode — streaming descriptive draft...' : 'Cloud AI — streaming descriptive draft...');
         storyCloud = await streamCloudVariant('story', 'v1');
-        updateGenerationProgress(50, 'Cloud AI — Narrative variant complete...');
-      }
-      if (!listBrowser?.details.success) {
-        updateGenerationProgress(55, 'Cloud AI — streaming Takeaways variant...');
-        listCloud = await streamCloudVariant('list', 'v2');
-        updateGenerationProgress(82, 'Cloud AI — Takeaways variant complete...');
+        updateGenerationProgress(82, 'Descriptive draft complete...');
       }
 
       const storyFinal = storyBrowser?.details.success ? storyBrowser : storyCloud;
-      const listFinal = listBrowser?.details.success ? listBrowser : listCloud;
 
-      if (storyFinal?.details.success || listFinal?.details.success) {
-        finalMode = storyFinal?.details.provider === 'browser' || listFinal?.details.provider === 'browser' ? 'browser' : 'cloud';
+      if (storyFinal?.details.success) {
+        finalMode = storyFinal.details.provider === 'browser' ? 'browser' : 'cloud';
       }
 
       const activeProviderLabel = finalMode === 'browser'
@@ -976,8 +1004,7 @@ export default function LinkedInWorkspace() {
 
       updateGenerationProgress(92, 'Finalizing AI variants...');
       setVariants([
-        createVariant('v1', `📖 ${computedGoal} (Narrative Hook)`, storyFinal?.text || '', storyFinal?.details),
-        createVariant('v2', `📋 ${computedGoal} (Bulleted Takeaways)`, listFinal?.text || '', listFinal?.details),
+        createVariant('v1', '✍️ Descriptive Draft', storyFinal?.text || '', storyFinal?.details),
       ]);
 
       if (browserSession) {
@@ -987,7 +1014,7 @@ export default function LinkedInWorkspace() {
       setGenerationMode(finalMode);
       setStatusMessage({
         type: finalMode === 'template' ? 'info' : 'success',
-        text: finalMode === 'template' ? 'Generated custom draft variants from template.' : `Generated 2 variants via ${activeProviderLabel}.`,
+        text: finalMode === 'template' ? 'Generated a draft from template.' : `Generated a descriptive draft via ${activeProviderLabel}.`,
       });
       updateGenerationProgress(100, 'Generation complete');
       window.setTimeout(() => {
@@ -1170,8 +1197,9 @@ export default function LinkedInWorkspace() {
                     }}
                     aria-label="AI generation mode"
                   >
-                    <option value="auto">Auto — Browser AI → Cloud fallback</option>
-                    <option value="cloud">Cloud AI only</option>
+                    <option value="auto">Auto — Browser AI → Demo fallback</option>
+                    <option value="cloud">Cloud AI — My API Key</option>
+                    <option value="demo" disabled={!demoAvailable}>Demo Mode — Server AI{demoAvailable ? "" : " (not configured)"}</option>
                   </select>
                 </div>
 
@@ -1246,7 +1274,8 @@ export default function LinkedInWorkspace() {
                   </div>
                 )}
 
-                {/* MASKED API KEY INPUT */}
+                {/* USER API KEY */}
+                {aiMode === 'cloud' && (
                 <div>
                   <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
                     Optional Custom API Key (In-Memory Only)
@@ -1270,9 +1299,17 @@ export default function LinkedInWorkspace() {
                     </button>
                   </div>
                   <span style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px', display: 'block' }}>
-                    If left blank, backend environment variables will be used.
+                    Your key is sent only for this generation and is not stored by the UI.
                   </span>
                 </div>
+                )}
+
+                {aiMode === 'demo' && (
+                  <div style={{ padding: '9px 10px', borderRadius: '8px', background: '#dbeafe', color: '#1e3a8a', fontSize: '11px', lineHeight: 1.45 }}>
+                    <strong>Demo Mode:</strong> uses the application's server-side AI key. Availability depends on the configured provider quota. Your API key is not required.
+                    {demoProviders.length > 0 && <span> Server providers: {demoProviders.join(', ')}.</span>}
+                  </div>
+                )}
               </div>
 
               {/* BROWSER AI STATUS / SETUP */}
