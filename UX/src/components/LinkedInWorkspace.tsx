@@ -18,7 +18,8 @@ import Image from '@tiptap/extension-image';
 import { 
   Mic, MicOff, Sparkles, Building2, CheckCircle2, 
   Bold, Italic, List, ListOrdered, Smile, Eye, Lock, 
-  Globe, ExternalLink, Key, Link as LinkIcon, Image as ImageIcon, Download, Copy, EyeOff
+  Globe, ExternalLink, Key, Link as LinkIcon, Image as ImageIcon, Download, Copy, EyeOff,
+  ArrowRight, ShieldCheck, Zap, Layout
 } from 'lucide-react';
 
 const LINKEDIN_MAX_CHARS = 3000;
@@ -481,6 +482,7 @@ export const generateWithBrowserAi = async (
 };
 
 export default function LinkedInWorkspace() {
+  const [currentView, setCurrentView] = useState<'landing' | 'workspace'>('landing');
   const [showAuthConfig, setShowAuthConfig] = useState(false);
   const [prompt, setPrompt] = useState('');
   const [selectedTone, setSelectedTone] = useState<string>('Conversational');
@@ -652,8 +654,6 @@ export default function LinkedInWorkspace() {
 
     const result = await checkBrowserAiAvailability();
 
-    // Give users a useful explanation on browsers that do not expose
-    // a supported local AI API (for example Safari and Firefox).
     if (result.status === 'unsupported') {
       const ua = navigator.userAgent;
       const browserName = /Firefox/i.test(ua)
@@ -984,8 +984,6 @@ export default function LinkedInWorkspace() {
           details.timeMs = Math.round(performance.now() - start);
           details.error = error?.message || String(error);
 
-          // applyStreamingText is scoped to the try block, so update the
-          // streaming variant directly here on error.
           const title = styleFormat === 'story'
             ? `📖 ${computedGoal} (Narrative Hook)`
             : `📋 ${computedGoal} (Bulleted Takeaways)`;
@@ -1067,716 +1065,844 @@ export default function LinkedInWorkspace() {
   };
 
   return (
-    <div className="workspace-shell" style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a' }}>
+    <div className="workspace-shell" style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a', width: '100%', maxWidth: '100vw', boxSizing: 'border-box', overflowX: 'hidden' }}>
       
       <style>{`
-        .ProseMirror { outline: none; min-height: 160px; caret-color: #0066c2; }
-        .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(340px, 1fr); gap: 24px; align-items: start; }
-        .workspace-preview { position: sticky; top: 24px; }
-        .header-actions { display: flex; align-items: center; gap: 8px; }
+        * { box-sizing: border-box; }
+        .ProseMirror { outline: none; min-height: 160px; caret-color: #0066c2; overflow-wrap: break-word; word-break: break-word; }
+        .workspace-shell { overflow-x: hidden; width: 100%; max-width: 100vw; }
+        .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: start; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
+        .workspace-column { display: flex; flex-direction: column; gap: 20px; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }
+        .workspace-preview { position: sticky; top: 24px; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }
+        .workspace-card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-wrap: break-word; word-break: break-word; }
+        .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+        .hero-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 24px; }
+        .cloud-custom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
+        .break-word-all { overflow-wrap: anywhere !important; word-break: break-word !important; }
+        
         @media (max-width: 900px) {
           .workspace-grid { grid-template-columns: 1fr !important; }
           .workspace-preview { position: static !important; }
         }
         @media (max-width: 640px) {
           .workspace-shell { padding: 12px !important; }
-          .workspace-header { padding: 14px !important; align-items: flex-start !important; }
-          .workspace-header h1 { font-size: 16px !important; }
+          .workspace-header { 
+            padding: 12px !important; 
+            flex-direction: column !important; 
+            align-items: stretch !important; 
+            gap: 12px !important; 
+          }
+          .workspace-header-title { font-size: 15px !important; line-height: 1.3 !important; }
           .workspace-header-subtitle { font-size: 11px !important; }
-          .header-actions { width: 100%; }
-          .header-actions button { width: 100%; justify-content: center; }
+          .header-actions { 
+            width: 100% !important; 
+            flex-direction: column !important; 
+            align-items: stretch !important; 
+            gap: 8px !important; 
+          }
+          .header-actions button { width: 100% !important; justify-content: center !important; text-align: center !important; }
           .workspace-card { padding: 14px !important; border-radius: 12px !important; }
-          .toolbar-wrap { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 2px; }
+          .toolbar-wrap { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 2px; maxWidth: 100%; }
           .emoji-strip { overflow-x: auto; flex-wrap: nowrap !important; }
           .draft-actions { flex-direction: column !important; }
           .draft-actions button { width: 100%; }
+          .cloud-custom-grid { grid-template-columns: 1fr !important; }
           .status-row { align-items: flex-start !important; flex-direction: column !important; }
           .status-row > div:last-child { width: 100%; }
           .status-row button { flex: 1; }
+          .status-banner {
+            flex-direction: column !important;
+            align-items: flex-start !important;
+            gap: 8px !important;
+            padding: 10px 12px !important;
+          }
+          .status-banner-text { width: 100% !important; word-break: break-word !important; }
+          .status-banner-close { align-self: flex-end !important; margin-top: -24px !important; }
         }
         .ProseMirror-focused { border-color: #0066c2 !important; box-shadow: 0 0 0 3px rgba(0, 102, 194, 0.15); }
         .ProseMirror ::selection { background-color: #bfdbfe !important; color: #1e3a8a !important; }
       `}</style>
 
-      <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px' }}>
-        
-        {/* HEADER BAR */}
-        <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '16px 24px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '16px' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-            <div style={{ width: '42px', height: '42px', backgroundColor: '#0f172a', color: '#ffffff', borderRadius: '10px', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-              <Building2 size={22} />
+      <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+        {/* HEADER BAR (Reduced Height for Mobile) */}
+        <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '14px', padding: '10px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: '1 1 auto' }}>
+            <div style={{ width: '34px', height: '34px', backgroundColor: '#0f172a', color: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+              <Building2 size={18} />
             </div>
-            <div>
-              <h1 className="workspace-header-title" style={{ margin: 0, fontSize: '18px', fontWeight: '700', color: '#0f172a' }}>LinkedIn Posts Draft Creator</h1>
-              <p className="workspace-header-subtitle" style={{ margin: 0, fontSize: '12px', color: '#64748b' }}>Voice-Driven LinkedIn Draft & Content Engine</p>
+            <div style={{ minWidth: 0, overflow: 'hidden' }}>
+              <h1 className="workspace-header-title" style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>Sunarc LinkedIn Posts Draft Creator</h1>
+              <p className="workspace-header-subtitle" style={{ margin: 0, fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>Voice-Driven LinkedIn Draft & Content Engine</p>
             </div>
           </div>
 
-          <div className="header-actions">
-          <button 
-            onClick={() => setShowAuthConfig(!showAuthConfig)}
-            style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '9px 16px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-          >
-            <Key size={14} />
-            <span>API Credentials & Auth Info for Direct Publishing</span>
-          </button>
-          </div>
+          {/* Header buttons only show when outside the landing page */}
+          {currentView !== 'landing' && (
+            <div className="header-actions" style={{ display: 'flex', gap: '8px' }}>
+              <button
+                onClick={() => setCurrentView('landing')}
+                style={{ backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Layout size={14} />
+                <span>Landing Page</span>
+              </button>
+              <button 
+                onClick={() => setShowAuthConfig(!showAuthConfig)}
+                style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
+              >
+                <Key size={14} />
+                <span>API Credentials & Auth Info</span>
+              </button>
+            </div>
+          )}
         </header>
 
         {showAuthConfig && (
-          <div style={{ backgroundColor: '#ffffff', padding: '20px', borderRadius: '16px', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+          <div style={{ backgroundColor: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box', maxWidth: '100%', minWidth: 0, overflowWrap: 'break-word' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '15px', fontWeight: '700' }}>API Credentials & Auth Info for Direct Publishing</h3>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', wordBreak: 'break-word' }}>API Credentials & Auth Info for Direct Publishing</h3>
               <button onClick={() => setShowAuthConfig(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
             </div>
-            <p style={{ fontSize: '12px', color: '#475569', margin: 0, lineHeight: '1.5' }}>
+            <p style={{ fontSize: '11px', color: '#475569', margin: 0, lineHeight: '1.4', wordBreak: 'break-word' }}>
               Direct API publishing requires an authorized OAuth URN and Client Secret. 
               <strong> Send a direct message (DM) to info@sunarctechnologies.com to enable direct background publishing.</strong>
             </p>
           </div>
         )}
 
-        {statusMessage && (
-          <div style={{ 
-            padding: '12px 16px', borderRadius: '12px', fontSize: '13px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+        {/* STATUS BANNER (Hidden on Landing Page) */}
+        {currentView !== 'landing' && statusMessage && (
+          <div className="status-banner" style={{ 
+            padding: '10px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxSizing: 'border-box', maxWidth: '100%', minWidth: 0,
             backgroundColor: statusMessage.type === 'error' ? '#fef2f2' : statusMessage.type === 'success' ? '#ecfdf5' : '#eff6ff',
             color: statusMessage.type === 'error' ? '#991b1b' : statusMessage.type === 'success' ? '#065f46' : '#1e40af',
             border: `1px solid ${statusMessage.type === 'error' ? '#fecaca' : statusMessage.type === 'success' ? '#a7f3d0' : '#bfdbfe'}`
           }}>
-            <span>{statusMessage.text}</span>
-            <button onClick={() => setStatusMessage(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+            <span className="status-banner-text" style={{ wordBreak: 'break-word', flex: '1 1 auto', minWidth: 0 }}>{statusMessage.text}</span>
+            <button className="status-banner-close" onClick={() => setStatusMessage(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 'bold', padding: '2px 4px', flexShrink: 0 }}>✕</button>
           </div>
         )}
 
-        <div className="workspace-grid">
-          
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-            
-            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-              
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
-                <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
-
+        {/* LANDING PAGE VIEW */}
+        {currentView === 'landing' ? (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+            {/* HERO CARD CONTAINING FEATURES GRID & CTA */}
+            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px 14px', border: '1px solid #e2e8f0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', maxWidth: '100%', overflowWrap: 'break-word' }}>
+                <Sparkles size={13} style={{ flexShrink: 0 }} /> <span>On-Device & Cloud-Powered LinkedIn Content Engine</span>
               </div>
+              
+              <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: 0, maxWidth: '700px', lineHeight: '1.2', wordBreak: 'break-word' }}>
+                Transform Meeting Notes & Audio into High-Impact LinkedIn Updates
+              </h2>
+              
+              <p style={{ fontSize: '12px', color: '#475569', margin: 0, maxWidth: '600px', lineHeight: '1.5', wordBreak: 'break-word' }}>
+                Dictate ideas on the go or paste raw meeting observations. Generate formatted, professional LinkedIn updates instantly using Local Browser AI or top Cloud LLMs.
+              </p>
 
-              <div className="context-selector">
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  What are you posting about?
-                </label>
-                <select
-                  value={meetingContext}
-                  onChange={(e) => setMeetingContext(e.target.value)}
-                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
-                  aria-label="Post situation"
-                >
-                  {MEETING_CONTEXTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-                <div style={{ marginTop: '5px', fontSize: '10px', color: '#64748b' }}>
-                  {MEETING_CONTEXTS.find((item) => item.id === meetingContext)?.hint}
+              {/* FEATURES GRID (Fits 3 in 1 row on Mobile) */}
+              <div style={{ 
+                display: 'grid', 
+                gridTemplateColumns: 'repeat(3, 1fr)', 
+                gap: '6px', 
+                width: '100%', 
+                marginTop: '4px',
+                textAlign: 'left',
+                boxSizing: 'border-box',
+                minWidth: 0
+              }}>
+                {/* Feature 1 */}
+                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
+                  <div style={{ width: '24px', height: '24px', backgroundColor: '#f0fdf4', color: '#166534', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Mic size={14} />
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>Voice Dictation</h3>
+                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
+                    Speak points naturally into context.
+                  </p>
+                </div>
+
+                {/* Feature 2 */}
+                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
+                  <div style={{ width: '24px', height: '24px', backgroundColor: '#eff6ff', color: '#1d4ed8', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <ShieldCheck size={14} />
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>On-Device AI</h3>
+                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
+                    Generate drafts locally with zero token cost.
+                  </p>
+                </div>
+
+                {/* Feature 3 */}
+                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
+                  <div style={{ width: '24px', height: '24px', backgroundColor: '#fffbeb', color: '#b45309', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                    <Zap size={14} />
+                  </div>
+                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>Smart Format</h3>
+                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
+                    Tailored situations with native bolding.
+                  </p>
                 </div>
               </div>
 
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                  Speak or type your context
-                </label>
+              {/* LAUNCH BUTTON AT THE BOTTOM */}
+              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px', width: '100%' }}>
                 <button
-                  type="button"
-                  onClick={toggleVoiceInput}
-                  style={{
-                    width: '100%', padding: '14px', borderRadius: '12px',
-                    border: isListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
-                    backgroundColor: isListening ? '#fef2f2' : '#f8fafc',
-                    color: isListening ? '#dc2626' : '#0f172a',
-                    fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
-                  }}
+                  onClick={() => setCurrentView('workspace')}
+                  style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(0, 102, 194, 0.25)', width: '100%', maxWidth: '320px' }}
                 >
-                  {isListening ? <MicOff size={18} /> : <Mic size={18} style={{ color: '#0066c2' }} />}
-                  <span>{isListening ? 'Listening... Click to Stop Dictation' : '🎙️ Tap to Dictate Notes / Context'}</span>
+                  <span>Launch Draft Creator</span>
+                  <ArrowRight size={16} />
                 </button>
               </div>
-
-              <div>
-                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                  Add more details if useful
-                </label>
-                <textarea 
-                  value={prompt}
-                  onChange={(e) => setPrompt(e.target.value)}
-                  placeholder="What happened, what did you learn, who is it for, and what should people take away?"
-                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', boxSizing: 'border-box', lineHeight: '1.5' }}
-                  rows={3}
-                />
-              </div>
-
-              <div className="options-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
-                <div>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Tone
-                  </label>
-                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                    {tonesList.map((tone) => (
-                      <button
-                        key={tone}
-                        type="button"
-                        onClick={() => setSelectedTone(tone)}
-                        style={{
-                          padding: '5px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
-                          backgroundColor: selectedTone === tone ? '#0f172a' : '#ffffff',
-                          color: selectedTone === tone ? '#ffffff' : '#475569'
-                        }}
-                      >
-                        {tone}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              </div>
-
-              {/* SIMPLE AI CONTROL */}
-              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px' }}>
-                {/* Row 1: AI mode */}
-                <div style={{
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  flexWrap: 'wrap'
-                }}>
-                  <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
-                    How should AI help?
-                  </span>
-                  <select
-                    value={aiMode}
-                    onChange={(e) => setAiMode(e.target.value as 'auto' | 'cloud' | 'demo')}
-                    style={{
-                      flex: '1 1 260px',
-                      minWidth: 0,
-                      padding: '7px 9px',
-                      borderRadius: '6px',
-                      border: '1px solid #93c5fd',
-                      backgroundColor: '#ffffff',
-                      color: '#1e3a8a',
-                      fontSize: '11px',
-                      fontWeight: '700'
-                    }}
-                    aria-label="AI generation mode"
-                  >
-                    <option value="auto">Automatic — use the best available AI</option>
-                    <option value="demo" disabled={!demoAvailable}>Demo Mode — Server AI{demoAvailable ? "" : " (not configured)"}</option>
-                    <option value="cloud">Cloud AI — My API Key</option>
-                  </select>
-                </div>
-
-                {aiMode === 'cloud' && (<div>
-                {/* Cloud provider + model */}
-                <div style={{
-                  display: 'grid',
-                  gridTemplateColumns: 'repeat(auto-fit, minmax(170px, 1fr))',
-                  gap: '10px',
-                  width: '100%'
-                }}>
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Cloud Provider
-                    </label>
-                    <select
-                      value={cloudProvider}
-                      onChange={(e) => handleProviderChange(e.target.value)}
-                      style={{
-                        width: '100%',
-                        minWidth: 0,
-                        padding: '8px',
-                        borderRadius: '6px',
-                        border: '1px solid #93c5fd',
-                        fontSize: '12px',
-                        backgroundColor: '#ffffff',
-                        boxSizing: 'border-box'
-                      }}
-                    >
-                      {CLOUD_PROVIDERS.map((p) => (
-                        <option key={p.id} value={p.id}>{p.name}</option>
-                      ))}
-                      <option value="custom">Custom Provider</option>
-                    </select>
-                  </div>
-
-                  <div style={{ minWidth: 0 }}>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Target Model
-                    </label>
-                    <select
-                      value={cloudModel}
-                      onChange={(e) => setCloudModel(e.target.value)}
-                      style={{
-                        width: '100%',
-                        minWidth: 0,
-                        padding: '8px',
-                        borderRadius: '6px',
-                        border: '1px solid #93c5fd',
-                        fontSize: '12px',
-                        backgroundColor: '#ffffff',
-                        boxSizing: 'border-box'
-                      }}
-                    >
-                      {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
-                        <option key={m} value={m}>{m}</option>
-                      ))}
-                      {cloudProvider === 'custom' && <option value={customModel}>{customModel || 'Enter custom model below'}</option>}
-                    </select>
-                  </div>
-                </div>
-
-                {cloudProvider === 'custom' && (
-                  <div className="cloud-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Provider ID / Name</label>
-                      <input value={customProvider} onChange={(e) => setCustomProvider(e.target.value)} placeholder="e.g. groq, mistral, deepseek" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }} />
-                    </div>
-                    <div>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Model ID</label>
-                      <input value={customModel} onChange={(e) => { setCustomModel(e.target.value); setCloudModel(e.target.value); }} placeholder="e.g. llama-3.3-70b-versatile" style={{ width: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }} />
-                    </div>
-                  </div>
-                )}
-
-                {/* USER API KEY */}
+            </div>
+          </div>
+        ) : (
+          /* WORKSPACE VIEW */
+          <div className="workspace-grid">
+            
+            <div className="workspace-column">
+              
+              <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
                 
-                <div>
-                  <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                    Optional Custom API Key (In-Memory Only)
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                  <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
+                </div>
+
+                <div className="context-selector" style={{ width: '100%', minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    What are you posting about?
                   </label>
-                  <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
-                    <input
-                      type={showApiKey ? 'text' : 'password'}
-                      value={cloudApiKey}
-                      onChange={(e) => setCloudApiKey(e.target.value)}
-                      placeholder={`Enter ${CLOUD_PROVIDERS.find(p=>p.id===cloudProvider)?.name} API Key (e.g. sk-...)`}
-                      style={{ width: '100%', padding: '8px 36px 8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', backgroundColor: '#ffffff' }}
-                      autoComplete="off"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => setShowApiKey(!showApiKey)}
-                      style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
-                      title={showApiKey ? "Hide Key" : "Show Key"}
-                    >
-                      {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                    </button>
+                  <select
+                    value={meetingContext}
+                    onChange={(e) => setMeetingContext(e.target.value)}
+                    style={{ width: '100%', maxWidth: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
+                    aria-label="Post situation"
+                  >
+                    {MEETING_CONTEXTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                  </select>
+                  <div style={{ marginTop: '5px', fontSize: '10px', color: '#64748b', wordBreak: 'break-word' }}>
+                    {MEETING_CONTEXTS.find((item) => item.id === meetingContext)?.hint}
                   </div>
-                  <span style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px', display: 'block' }}>
-                    Your key is sent only for this generation and is not stored by the UI.
-                  </span>
                 </div>
+
+                <div style={{ width: '100%', minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                    Speak or type your context
+                  </label>
+                  <button
+                    type="button"
+                    onClick={toggleVoiceInput}
+                    style={{
+                      width: '100%', maxWidth: '100%', padding: '14px', borderRadius: '12px',
+                      border: isListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                      backgroundColor: isListening ? '#fef2f2' : '#f8fafc',
+                      color: isListening ? '#dc2626' : '#0f172a',
+                      fontWeight: '700', fontSize: '13px', cursor: 'pointer',
+                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
+                      boxSizing: 'border-box'
+                    }}
+                  >
+                    {isListening ? <MicOff size={18} /> : <Mic size={18} style={{ color: '#0066c2' }} />}
+                    <span>{isListening ? 'Listening... Click to Stop Dictation' : '🎙️ Tap to Dictate Notes / Context'}</span>
+                  </button>
                 </div>
-                )}
 
-                {aiMode === 'demo' && (
-                  <div style={{ padding: '9px 10px', borderRadius: '8px', background: '#dbeafe', color: '#1e3a8a', fontSize: '11px', lineHeight: 1.45 }}>
-                    <strong>Demo Mode:</strong> uses the application's server-side AI key. Availability depends on the configured provider quota. Your API key is not required.
-                    {demoProviders.length > 0 && <span> Server providers: {demoProviders.join(', ')}.</span>}
-                  </div>
-                )}
-              </div>
+                <div style={{ width: '100%', minWidth: 0 }}>
+                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                    Add more details if useful
+                  </label>
+                  <textarea 
+                    value={prompt}
+                    onChange={(e) => setPrompt(e.target.value)}
+                    placeholder="What happened, what did you learn, who is it for, and what should people take away?"
+                    style={{ width: '100%', maxWidth: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', boxSizing: 'border-box', lineHeight: '1.5', resize: 'vertical' }}
+                    rows={3}
+                  />
+                </div>
 
-              {/* BROWSER AI STATUS / SETUP */}
-              {aiMode === 'auto' && (
-                <div style={{
-                  backgroundColor: browserAiStatus === 'ready' ? '#f0fdf4' : '#fffbeb',
-                  border: `1px solid ${browserAiStatus === 'ready' ? '#bbf7d0' : '#fde68a'}`,
-                  borderRadius: '10px',
-                  padding: '10px 12px',
-                  marginTop: '2px'
-                }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0 }}>
-                      {browserAiStatus === 'ready'
-                        ? <CheckCircle2 size={15} color="#15803d" />
-                        : <Sparkles size={15} color="#b45309" />}
-                      <div style={{ minWidth: 0 }}>
-                        <div style={{ fontSize: '11px', fontWeight: '800', color: '#334155' }}>
-                          Local AI: {browserAiStatus === 'ready' ? 'Available' : 'Unavailable'}
-                        </div>
-                        <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px' }}>
-                          {browserAiMessage}
-                        </div>
-                      </div>
-                    </div>
-
-                    <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
-                      {browserAiStatus !== 'ready' && (
+                <div className="options-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+                  <div>
+                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                      Tone
+                    </label>
+                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                      {tonesList.map((tone) => (
                         <button
+                          key={tone}
                           type="button"
-                          onClick={() => void checkBrowserAi(true)}
-                          disabled={browserAiStatus === 'checking' || browserAiStatus === 'downloading'}
+                          onClick={() => setSelectedTone(tone)}
                           style={{
-                            border: '1px solid #cbd5e1',
-                            backgroundColor: '#ffffff',
-                            color: '#334155',
-                            borderRadius: '6px',
-                            padding: '5px 8px',
-                            fontSize: '10px',
-                            fontWeight: '700',
-                            cursor: browserAiStatus === 'checking' || browserAiStatus === 'downloading' ? 'default' : 'pointer'
+                            padding: '5px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
+                            backgroundColor: selectedTone === tone ? '#0f172a' : '#ffffff',
+                            color: selectedTone === tone ? '#ffffff' : '#475569'
                           }}
                         >
-                          {browserAiStatus === 'downloading'
-                            ? 'Downloading...'
-                            : browserAiStatus === 'unsupported'
-                            ? 'Check Browser AI'
-                            : 'Check / Set Up'}
+                          {tone}
                         </button>
-                      )}
-                      <button
-                        type="button"
-                        onClick={() => setShowBrowserAiHelp((value) => !value)}
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* SIMPLE AI CONTROL */}
+                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+                  {/* Row 1: AI mode */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    gap: '10px',
+                    flexWrap: 'wrap',
+                    width: '100%',
+                    minWidth: 0
+                  }}>
+                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
+                      How should AI help?
+                    </span>
+                    <select
+                      value={aiMode}
+                      onChange={(e) => setAiMode(e.target.value as 'auto' | 'cloud' | 'demo')}
+                      style={{
+                        flex: '1 1 200px',
+                        width: '100%',
+                        maxWidth: '100%',
+                        minWidth: 0,
+                        padding: '7px 9px',
+                        borderRadius: '6px',
+                        border: '1px solid #93c5fd',
+                        backgroundColor: '#ffffff',
+                        color: '#1e3a8a',
+                        fontSize: '11px',
+                        fontWeight: '700',
+                        boxSizing: 'border-box'
+                      }}
+                      aria-label="AI generation mode"
+                    >
+                      <option value="auto">Automatic — use the best available AI</option>
+                      <option value="demo" disabled={!demoAvailable}>Demo Mode — Server AI{demoAvailable ? "" : " (not configured)"}</option>
+                      <option value="cloud">Cloud AI — My API Key</option>
+                    </select>
+                  </div>
+
+                  {aiMode === 'cloud' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', minWidth: 0 }}>
+                  {/* Cloud provider + model */}
+                  <div style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
+                    gap: '10px',
+                    width: '100%',
+                    minWidth: 0
+                  }}>
+                    <div style={{ minWidth: 0 }}>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
+                        Cloud Provider
+                      </label>
+                      <select
+                        value={cloudProvider}
+                        onChange={(e) => handleProviderChange(e.target.value)}
                         style={{
-                          border: 'none',
-                          background: 'transparent',
-                          color: '#2563eb',
-                          fontSize: '10px',
-                          fontWeight: '700',
-                          cursor: 'pointer',
-                          padding: '5px'
+                          width: '100%',
+                          maxWidth: '100%',
+                          minWidth: 0,
+                          padding: '8px',
+                          borderRadius: '6px',
+                          border: '1px solid #93c5fd',
+                          fontSize: '12px',
+                          backgroundColor: '#ffffff',
+                          boxSizing: 'border-box'
                         }}
                       >
-                        {showBrowserAiHelp ? 'Hide help' : 'How does this work?'}
-                      </button>
+                        {CLOUD_PROVIDERS.map((p) => (
+                          <option key={p.id} value={p.id}>{p.name}</option>
+                        ))}
+                        <option value="custom">Custom Provider</option>
+                      </select>
                     </div>
-                  </div>
 
-                  {browserAiStatus === 'downloading' && (
-                    <div style={{ marginTop: '8px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b', marginBottom: '4px' }}>
-                        <span>Local AI model download</span>
-                        <span>{browserAiDownloadProgress}%</span>
-                      </div>
-                      <div style={{ height: '6px', width: '100%', backgroundColor: '#e5e7eb', borderRadius: '999px', overflow: 'hidden' }}>
-                        <div style={{
-                          height: '100%',
-                          width: `${browserAiDownloadProgress}%`,
-                          backgroundColor: '#f59e0b',
-                          borderRadius: '999px',
-                          transition: 'width 300ms ease-out'
-                        }} />
-                      </div>
-                    </div>
-                  )}
-
-                  {showBrowserAiHelp && (
-                    <div style={{
-                      marginTop: '9px',
-                      paddingTop: '9px',
-                      borderTop: '1px solid #fde68a',
-                      fontSize: '10px',
-                      lineHeight: '1.5',
-                      color: '#475569'
-                    }}>
-                      <strong style={{ color: '#334155' }}>Local AI is used when the device supports it.</strong>
-                      <div style={{ marginTop: '4px' }}>
-                        The app can use a browser/device-provided local AI capability when available. No separate AI extension is required by this app.
-                      </div>
-                      <div style={{ marginTop: '4px' }}>
-                        For the Prompt API, support depends on the browser version, operating system,
-                        device hardware, available storage, and the current local-AI rollout.
-                      </div>
-                      <div style={{ marginTop: '5px', fontWeight: '700', color: '#334155' }}>
-                        In Automatic mode, the app uses local AI when available and automatically falls back to Demo Mode Server AI when it is not.
-                      </div>
-                      <div style={{ marginTop: '5px' }}>
-                        For supported browsers, use their built-in AI diagnostics if available. This is optional and not required to use the app.
-                      </div>
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {aiMode === 'cloud' && (
-                <div style={{
-                  backgroundColor: '#eff6ff',
-                  border: '1px solid #bfdbfe',
-                  borderRadius: '10px',
-                  padding: '9px 12px',
-                  marginTop: '2px',
-                  fontSize: '10px',
-                  color: '#475569'
-                }}>
-                  <strong style={{ color: '#1e3a8a' }}>Cloud AI only</strong>
-                  <span style={{ marginLeft: '6px' }}>
-                    Local AI will not be used for this generation.
-                  </span>
-                </div>
-              )}
-
-              <button 
-                onClick={generateMultiVariants} 
-                disabled={isGenerating}
-                style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-              >
-                <Sparkles size={16} />
-                <span>{isGenerating ? 'Generating Draft...' : 'Generate Draft'}</span>
-              </button>
-
-              {/* AI GENERATION PROGRESS */}
-              {generationProgress > 0 && (
-                <div style={{ backgroundColor: '#ffffff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '12px', marginTop: '2px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' }}>
-                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155' }}>
-                      {generationStage || 'Generating draft...'}
-                    </span>
-                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>
-                      {generationProgress}%
-                    </span>
-                  </div>
-                  <div
-                    role="progressbar"
-                    aria-valuenow={generationProgress}
-                    aria-valuemin={0}
-                    aria-valuemax={100}
-                    aria-label={generationStage || 'AI generation progress'}
-                    style={{ height: '8px', width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}
-                  >
-                    <div style={{ height: '100%', width: `${generationProgress}%`, backgroundColor: '#2563eb', borderRadius: '999px', transition: 'width 500ms ease-out' }} />
-                  </div>
-                </div>
-              )}
-
-              {/* VARIANTS DISPLAY */}
-              {variants.length > 0 && (
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
-                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED DRAFT:</span>
-                    <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
-                      <span style={{
-                        backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : browserAiStatus === 'unavailable' ? '#f1f5f9' : '#eff6ff',
-                        color: browserAiStatus === 'ready' ? '#166534' : '#475569',
-                        padding: '3px 8px',
-                        borderRadius: '12px',
-                        fontSize: '10px',
-                        fontWeight: '700'
-                      }}>
-                        {aiMode === 'cloud'
-                          ? 'Local AI not used'
-                          : browserAiStatus === 'ready'
-                          ? `${getBrowserAiModelName()} Ready`
-                          : browserAiStatus === 'downloading'
-                          ? `Local AI Downloading ${browserAiDownloadProgress}%`
-                          : browserAiStatus === 'downloadable'
-                          ? 'Local AI Model Ready to Prepare'
-                          : browserAiStatus === 'checking'
-                          ? 'Checking Local AI'
-                          : 'Local AI Unavailable — Demo fallback'}
-                      </span>
-                      <span style={{ backgroundColor: generationMode === 'browser' ? '#fef3c7' : generationMode === 'cloud' ? '#e0f2fe' : '#f3f4f6', color: generationMode === 'browser' ? '#92400e' : generationMode === 'cloud' ? '#075985' : '#374151', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
-                        {generationMode === 'browser' ? 'Final: Local AI' : generationMode === 'cloud' ? (aiMode === 'demo' ? 'Final: Demo Mode Server AI' : 'Final: Cloud AI') : generationMode === 'template' ? 'Final: Template' : 'Final: Pending'}
-                      </span>
-                    </div>
-                  </div>
-                  {variants.map((v) => (
-                    <div key={v.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px' }}>
-                      <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '12px' }}>
-                        <span>{v.title}</span>
-                        <span style={{ backgroundColor: v.details?.success ? '#dbeafe' : '#fee2e2', color: v.details?.success ? '#1e40af' : '#991b1b', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>{v.badge}</span>
-                      </div>
-                      {v.details && (
-                        <div style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', fontSize: '11px', color: '#334155', lineHeight: '1.4' }}>
-                          <div style={{ marginBottom: '4px' }}><strong>AI:</strong> {v.details.provider} / {v.details.model || 'default'}</div>
-                          {v.details.usage && (
-                            <div style={{ marginBottom: '4px' }}><strong>Tokens:</strong> {v.details.usage.prompt_tokens ?? '-'} prompt / {v.details.usage.completion_tokens ?? '-'} completion / {v.details.usage.total_tokens ?? '-'} total</div>
-                          )}
-                          {v.details.rateLimit && (
-                            <div style={{ marginBottom: '4px' }}><strong>Rate Limit:</strong> {Object.entries(v.details.rateLimit).map(([key, value]) => `${key}: ${value}`).join(' • ')}</div>
-                          )}
-                          {v.details.params && (
-                            <div style={{ marginBottom: '4px' }}><strong>Params:</strong> T={v.details.params.temperature ?? '-'} / max={v.details.params.max_tokens ?? '-'}</div>
-                          )}
-                          <div><strong>Time:</strong> {v.details.timeMs ?? '-'} ms</div>
-                          {v.details.error && (
-                            <div style={{ marginTop: '6px', color: '#b91c1c' }}><strong>Error:</strong> {v.details.error}</div>
-                          )}
-                        </div>
-                      )}
-                      
-                      <button 
-                        onClick={() => applyVariantToEditor(v.contentHtml)}
-                        style={{ border: 'none', background: 'none', color: '#0066c2', fontWeight: '700', fontSize: '12px', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                    <div style={{ minWidth: 0 }}>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
+                        Target Model
+                      </label>
+                      <select
+                        value={cloudModel}
+                        onChange={(e) => setCloudModel(e.target.value)}
+                        style={{
+                          width: '100%',
+                          maxWidth: '100%',
+                          minWidth: 0,
+                          padding: '8px',
+                          borderRadius: '6px',
+                          border: '1px solid #93c5fd',
+                          fontSize: '12px',
+                          backgroundColor: '#ffffff',
+                          boxSizing: 'border-box'
+                        }}
                       >
-                        ✓ Load into Post Canvas
-                      </button>
+                        {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
+                          <option key={m} value={m}>{m}</option>
+                        ))}
+                        {cloudProvider === 'custom' && <option value={customModel}>{customModel || 'Enter custom model below'}</option>}
+                      </select>
                     </div>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* CANVAS EDITOR */}
-            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px' }}>
-                <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>2. Post Canvas Editor</span>
-                <span style={{ fontSize: '11px', color: plainText.length > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: plainText.length > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
-                  Characters: <strong>{plainText.length}</strong> / {LINKEDIN_MAX_CHARS} max
-                </span>
-              </div>
-
-              {editor && (
-                <div className="toolbar-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleBold().run()}
-                      style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('bold') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bold') ? '#eff6ff' : 'transparent', color: editor.isActive('bold') ? '#0066c2' : '#475569', cursor: 'pointer' }}
-                    >
-                      <Bold size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleItalic().run()}
-                      style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('italic') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('italic') ? '#eff6ff' : 'transparent', color: editor.isActive('italic') ? '#0066c2' : '#475569', cursor: 'pointer' }}
-                    >
-                      <Italic size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleAddLink}
-                      style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('link') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('link') ? '#eff6ff' : 'transparent', color: editor.isActive('link') ? '#0066c2' : '#475569', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
-                    >
-                      <LinkIcon size={15} />
-                    </button>
-                    <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" style={{ display: 'none' }} />
-                    <button
-                      type="button"
-                      onClick={() => fileInputRef.current?.click()}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: '1px solid transparent', backgroundColor: '#eff6ff', color: '#0066c2', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                    >
-                      <ImageIcon size={15} />
-                      <span>Add Image</span>
-                    </button>
-
-                    <div style={{ width: '1px', height: '18px', backgroundColor: '#cbd5e1', margin: '0 4px' }} />
-
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleBulletList().run()}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('bulletList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bulletList') ? '#eff6ff' : 'transparent', color: editor.isActive('bulletList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                    >
-                      <List size={15} />
-                    </button>
-                    <button
-                      type="button"
-                      onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                      style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('orderedList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('orderedList') ? '#eff6ff' : 'transparent', color: editor.isActive('orderedList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                    >
-                      <ListOrdered size={15} />
-                    </button>
                   </div>
 
-                  <div className="emoji-strip" style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#ffffff', padding: '3px 8px', borderRadius: '20px', border: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
-                    <Smile size={14} style={{ color: '#0066c2', marginRight: '2px' }} />
-                    {emojiAndSymbolsList.map((item) => (
+                  {cloudProvider === 'custom' && (
+                    <div className="cloud-custom-grid">
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Provider ID / Name</label>
+                        <input value={customProvider} onChange={(e) => setCustomProvider(e.target.value)} placeholder="e.g. groq, mistral, deepseek" style={{ width: '100%', maxWidth: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', boxSizing: 'border-box' }} />
+                      </div>
+                      <div style={{ minWidth: 0 }}>
+                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Model ID</label>
+                        <input value={customModel} onChange={(e) => { setCustomModel(e.target.value); setCloudModel(e.target.value); }} placeholder="e.g. llama-3.3-70b-versatile" style={{ width: '100%', maxWidth: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', boxSizing: 'border-box' }} />
+                      </div>
+                    </div>
+                  )}
+
+                  {/* USER API KEY */}
+                  <div style={{ width: '100%', minWidth: 0 }}>
+                    <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
+                      Optional Custom API Key (In-Memory Only)
+                    </label>
+                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
+                      <input
+                        type={showApiKey ? 'text' : 'password'}
+                        value={cloudApiKey}
+                        onChange={(e) => setCloudApiKey(e.target.value)}
+                        placeholder={`Enter ${CLOUD_PROVIDERS.find(p=>p.id===cloudProvider)?.name} API Key (e.g. sk-...)`}
+                        style={{ width: '100%', maxWidth: '100%', padding: '8px 36px 8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', backgroundColor: '#ffffff', boxSizing: 'border-box' }}
+                        autoComplete="off"
+                      />
                       <button
-                        key={item}
                         type="button"
-                        onClick={() => insertSymbolAtCursor(item)}
-                        style={{ border: 'none', background: 'none', fontSize: '14px', cursor: 'pointer', padding: '2px 4px', borderRadius: '4px' }}
+                        onClick={() => setShowApiKey(!showApiKey)}
+                        style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
+                        title={showApiKey ? "Hide Key" : "Show Key"}
                       >
-                        {item}
+                        {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                       </button>
+                    </div>
+                    <span style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px', display: 'block', wordBreak: 'break-word' }}>
+                      Your key is sent only for this generation and is not stored by the UI.
+                    </span>
+                  </div>
+                  </div>
+                  )}
+
+                  {aiMode === 'demo' && (
+                    <div style={{ padding: '9px 10px', borderRadius: '8px', background: '#dbeafe', color: '#1e3a8a', fontSize: '11px', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                      <strong>Demo Mode:</strong> uses the application's server-side AI key. Availability depends on the configured provider quota. Your API key is not required.
+                      {demoProviders.length > 0 && <span> Server providers: {demoProviders.join(', ')}.</span>}
+                    </div>
+                  )}
+                </div>
+
+                {/* BROWSER AI STATUS / SETUP */}
+                {aiMode === 'auto' && (
+                  <div style={{
+                    backgroundColor: browserAiStatus === 'ready' ? '#f0fdf4' : '#fffbeb',
+                    border: `1px solid ${browserAiStatus === 'ready' ? '#bbf7d0' : '#fde68a'}`,
+                    borderRadius: '10px',
+                    padding: '10px 12px',
+                    marginTop: '2px',
+                    width: '100%',
+                    boxSizing: 'border-box',
+                    minWidth: 0
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: '1 1 auto' }}>
+                        {browserAiStatus === 'ready'
+                          ? <CheckCircle2 size={15} color="#15803d" style={{ flexShrink: 0 }} />
+                          : <Sparkles size={15} color="#b45309" style={{ flexShrink: 0 }} />}
+                        <div style={{ minWidth: 0, overflowWrap: 'break-word' }}>
+                          <div style={{ fontSize: '11px', fontWeight: '800', color: '#334155' }}>
+                            Local AI: {browserAiStatus === 'ready' ? 'Available' : 'Unavailable'}
+                          </div>
+                          <div style={{ fontSize: '10px', color: '#64748b', marginTop: '2px', wordBreak: 'break-word' }}>
+                            {browserAiMessage}
+                          </div>
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', gap: '5px', flexShrink: 0 }}>
+                        {browserAiStatus !== 'ready' && (
+                          <button
+                            type="button"
+                            onClick={() => void checkBrowserAi(true)}
+                            disabled={browserAiStatus === 'checking' || browserAiStatus === 'downloading'}
+                            style={{
+                              border: '1px solid #cbd5e1',
+                              backgroundColor: '#ffffff',
+                              color: '#334155',
+                              borderRadius: '6px',
+                              padding: '5px 8px',
+                              fontSize: '10px',
+                              fontWeight: '700',
+                              cursor: browserAiStatus === 'checking' || browserAiStatus === 'downloading' ? 'default' : 'pointer'
+                            }}
+                          >
+                            {browserAiStatus === 'downloading'
+                              ? 'Downloading...'
+                              : browserAiStatus === 'unsupported'
+                              ? 'Check Browser AI'
+                              : 'Check / Set Up'}
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => setShowBrowserAiHelp((value) => !value)}
+                          style={{
+                            border: 'none',
+                            background: 'transparent',
+                            color: '#2563eb',
+                            fontSize: '10px',
+                            fontWeight: '700',
+                            cursor: 'pointer',
+                            padding: '5px'
+                          }}
+                        >
+                          {showBrowserAiHelp ? 'Hide help' : 'How does this work?'}
+                        </button>
+                      </div>
+                    </div>
+
+                    {browserAiStatus === 'downloading' && (
+                      <div style={{ marginTop: '8px', width: '100%' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b', marginBottom: '4px' }}>
+                          <span>Local AI model download</span>
+                          <span>{browserAiDownloadProgress}%</span>
+                        </div>
+                        <div style={{ height: '6px', width: '100%', backgroundColor: '#e5e7eb', borderRadius: '999px', overflow: 'hidden' }}>
+                          <div style={{
+                            height: '100%',
+                            width: `${browserAiDownloadProgress}%`,
+                            backgroundColor: '#f59e0b',
+                            borderRadius: '999px',
+                            transition: 'width 300ms ease-out'
+                          }} />
+                        </div>
+                      </div>
+                    )}
+
+                    {showBrowserAiHelp && (
+                      <div style={{
+                        marginTop: '9px',
+                        paddingTop: '9px',
+                        borderTop: '1px solid #fde68a',
+                        fontSize: '10px',
+                        lineHeight: '1.5',
+                        color: '#475569',
+                        overflowWrap: 'break-word'
+                      }}>
+                        <strong style={{ color: '#334155' }}>Local AI is used when the device supports it.</strong>
+                        <div style={{ marginTop: '4px' }}>
+                          The app can use a browser/device-provided local AI capability when available. No separate AI extension is required by this app.
+                        </div>
+                        <div style={{ marginTop: '4px' }}>
+                          For the Prompt API, support depends on the browser version, operating system,
+                          device hardware, available storage, and the current local-AI rollout.
+                        </div>
+                        <div style={{ marginTop: '5px', fontWeight: '700', color: '#334155' }}>
+                          In Automatic mode, the app uses local AI when available and automatically falls back to Demo Mode Server AI when it is not.
+                        </div>
+                        <div style={{ marginTop: '5px' }}>
+                          For supported browsers, use their built-in AI diagnostics if available. This is optional and not required to use the app.
+                        </div>
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {aiMode === 'cloud' && (
+                  <div style={{
+                    backgroundColor: '#eff6ff',
+                    border: '1px solid #bfdbfe',
+                    borderRadius: '10px',
+                    padding: '9px 12px',
+                    marginTop: '2px',
+                    fontSize: '10px',
+                    color: '#475569',
+                    wordBreak: 'break-word'
+                  }}>
+                    <strong style={{ color: '#1e3a8a' }}>Cloud AI only</strong>
+                    <span style={{ marginLeft: '6px' }}>
+                      Local AI will not be used for this generation.
+                    </span>
+                  </div>
+                )}
+
+                <button 
+                  onClick={generateMultiVariants} 
+                  disabled={isGenerating}
+                  style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', boxSizing: 'border-box' }}
+                >
+                  <Sparkles size={16} />
+                  <span>{isGenerating ? 'Generating Draft...' : 'Generate Draft'}</span>
+                </button>
+
+                {/* AI GENERATION PROGRESS */}
+                {generationProgress > 0 && (
+                  <div style={{ backgroundColor: '#ffffff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '12px', marginTop: '2px', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155', wordBreak: 'break-word' }}>
+                        {generationStage || 'Generating draft...'}
+                      </span>
+                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>
+                        {generationProgress}%
+                      </span>
+                    </div>
+                    <div
+                      role="progressbar"
+                      aria-valuenow={generationProgress}
+                      aria-valuemin={0}
+                      aria-valuemax={100}
+                      aria-label={generationStage || 'AI generation progress'}
+                      style={{ height: '8px', width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}
+                    >
+                      <div style={{ height: '100%', width: `${generationProgress}%`, backgroundColor: '#2563eb', borderRadius: '999px', transition: 'width 500ms ease-out' }} />
+                    </div>
+                  </div>
+                )}
+
+                {/* VARIANTS DISPLAY */}
+                {variants.length > 0 && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
+                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED DRAFT:</span>
+                      <div style={{ display: 'flex', gap: '6px', flexWrap: 'wrap' }}>
+                        <span style={{
+                          backgroundColor: browserAiStatus === 'ready' ? '#dcfce7' : browserAiStatus === 'unavailable' ? '#f1f5f9' : '#eff6ff',
+                          color: browserAiStatus === 'ready' ? '#166534' : '#475569',
+                          padding: '3px 8px',
+                          borderRadius: '12px',
+                          fontSize: '10px',
+                          fontWeight: '700'
+                        }}>
+                          {aiMode === 'cloud'
+                            ? 'Local AI not used'
+                            : browserAiStatus === 'ready'
+                            ? `${getBrowserAiModelName()} Ready`
+                            : browserAiStatus === 'downloading'
+                            ? `Local AI Downloading ${browserAiDownloadProgress}%`
+                            : browserAiStatus === 'downloadable'
+                            ? 'Local AI Model Ready to Prepare'
+                            : browserAiStatus === 'checking'
+                            ? 'Checking Local AI'
+                            : 'Local AI Unavailable — Demo fallback'}
+                        </span>
+                        <span style={{ backgroundColor: generationMode === 'browser' ? '#fef3c7' : generationMode === 'cloud' ? '#e0f2fe' : '#f3f4f6', color: generationMode === 'browser' ? '#92400e' : generationMode === 'cloud' ? '#075985' : '#374151', padding: '3px 8px', borderRadius: '12px', fontSize: '10px', fontWeight: '700' }}>
+                          {generationMode === 'browser' ? 'Final: Local AI' : generationMode === 'cloud' ? (aiMode === 'demo' ? 'Final: Demo Mode Server AI' : 'Final: Cloud AI') : generationMode === 'template' ? 'Final: Template' : 'Final: Pending'}
+                        </span>
+                      </div>
+                    </div>
+                    {variants.map((v) => (
+                      <div key={v.id} style={{ backgroundColor: '#f8fafc', border: '1px solid #cbd5e1', padding: '12px', borderRadius: '8px', display: 'flex', flexDirection: 'column', gap: '6px', width: '100%', boxSizing: 'border-box', minWidth: 0, overflowWrap: 'break-word' }}>
+                        <div style={{ display: 'flex', justifyContent: 'space-between', fontWeight: '700', fontSize: '12px', flexWrap: 'wrap', gap: '4px' }}>
+                          <span>{v.title}</span>
+                          <span style={{ backgroundColor: v.details?.success ? '#dbeafe' : '#fee2e2', color: v.details?.success ? '#1e40af' : '#991b1b', padding: '2px 6px', borderRadius: '4px', fontSize: '10px' }}>{v.badge}</span>
+                        </div>
+                        {v.details && (
+                          <div className="break-word-all" style={{ backgroundColor: '#ffffff', border: '1px solid #e2e8f0', borderRadius: '10px', padding: '10px', fontSize: '11px', color: '#334155', lineHeight: '1.4', width: '100%', boxSizing: 'border-box' }}>
+                            <div style={{ marginBottom: '4px' }}><strong>AI:</strong> {v.details.provider} / {v.details.model || 'default'}</div>
+                            {v.details.usage && (
+                              <div style={{ marginBottom: '4px' }}><strong>Tokens:</strong> {v.details.usage.prompt_tokens ?? '-'} prompt / {v.details.usage.completion_tokens ?? '-'} completion / {v.details.usage.total_tokens ?? '-'} total</div>
+                            )}
+                            {v.details.rateLimit && (
+                              <div style={{ marginBottom: '4px' }}><strong>Rate Limit:</strong> {Object.entries(v.details.rateLimit).map(([key, value]) => `${key}: ${value}`).join(' • ')}</div>
+                            )}
+                            {v.details.params && (
+                              <div style={{ marginBottom: '4px' }}><strong>Params:</strong> T={v.details.params.temperature ?? '-'} / max={v.details.params.max_tokens ?? '-'}</div>
+                            )}
+                            <div><strong>Time:</strong> {v.details.timeMs ?? '-'} ms</div>
+                            {v.details.error && (
+                              <div style={{ marginTop: '6px', color: '#b91c1c' }}><strong>Error:</strong> {v.details.error}</div>
+                            )}
+                          </div>
+                        )}
+                        
+                        <button 
+                          onClick={() => applyVariantToEditor(v.contentHtml)}
+                          style={{ border: 'none', background: 'none', color: '#0066c2', fontWeight: '700', fontSize: '12px', cursor: 'pointer', textAlign: 'left', padding: 0 }}
+                        >
+                          ✓ Load into Post Canvas
+                        </button>
+                      </div>
                     ))}
                   </div>
-                </div>
-              )}
-
-              <div style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative' }}>
-                <EditorContent editor={editor} />
+                )}
               </div>
 
-              {attachedImageUrl && (
-                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1' }}>
-                  <span style={{ fontSize: '12px', fontWeight: '600', color: '#334155' }}>🖼️ Attached Canvas Image:</span>
-                  <div style={{ display: 'flex', gap: '8px' }}>
-                    <button
-                      onClick={copyImageToClipboard}
-                      style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <Copy size={13} /> Copy Image
-                    </button>
-                    <a
-                      href={attachedImageUrl}
-                      download="linkedin-post-image.png"
-                      style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
-                    >
-                      <Download size={13} /> Download
-                    </a>
-                  </div>
+              {/* CANVAS EDITOR */}
+              <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', flexWrap: 'wrap', gap: '4px' }}>
+                  <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>2. Post Canvas Editor</span>
+                  <span style={{ fontSize: '11px', color: plainText.length > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: plainText.length > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
+                    Characters: <strong>{plainText.length}</strong> / {LINKEDIN_MAX_CHARS} max
+                  </span>
                 </div>
-              )}
 
-              <div className="draft-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap' }}>
-                <button 
-                  onClick={handleManualPost}
-                  style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px' }}
-                >
-                  <ExternalLink size={16} />
-                  <span>Copy Draft & Open LinkedIn</span>
-                </button>
+                {editor && (
+                  <div className="toolbar-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
+                      <button
+                        type="button"
+                        onClick={() => editor.chain().focus().toggleBold().run()}
+                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('bold') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bold') ? '#eff6ff' : 'transparent', color: editor.isActive('bold') ? '#0066c2' : '#475569', cursor: 'pointer' }}
+                      >
+                        <Bold size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editor.chain().focus().toggleItalic().run()}
+                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('italic') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('italic') ? '#eff6ff' : 'transparent', color: editor.isActive('italic') ? '#0066c2' : '#475569', cursor: 'pointer' }}
+                      >
+                        <Italic size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleAddLink}
+                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('link') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('link') ? '#eff6ff' : 'transparent', color: editor.isActive('link') ? '#0066c2' : '#475569', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                      >
+                        <LinkIcon size={15} />
+                      </button>
+                      <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" style={{ display: 'none' }} />
+                      <button
+                        type="button"
+                        onClick={() => fileInputRef.current?.click()}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: '1px solid transparent', backgroundColor: '#eff6ff', color: '#0066c2', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        <ImageIcon size={15} />
+                        <span>Add Image</span>
+                      </button>
 
-                <button 
-                  disabled={true}
-                  style={{ flex: 1, backgroundColor: '#94a3b8', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', opacity: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                >
-                  <Lock size={15} />
-                  <span>Publish Direct API (DM to Unlock)</span>
-                </button>
+                      <div style={{ width: '1px', height: '18px', backgroundColor: '#cbd5e1', margin: '0 4px' }} />
+
+                      <button
+                        type="button"
+                        onClick={() => editor.chain().focus().toggleBulletList().run()}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('bulletList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bulletList') ? '#eff6ff' : 'transparent', color: editor.isActive('bulletList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        <List size={15} />
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => editor.chain().focus().toggleOrderedList().run()}
+                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('orderedList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('orderedList') ? '#eff6ff' : 'transparent', color: editor.isActive('orderedList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                      >
+                        <ListOrdered size={15} />
+                      </button>
+                    </div>
+
+                    <div className="emoji-strip" style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#ffffff', padding: '3px 8px', borderRadius: '20px', border: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
+                      <Smile size={14} style={{ color: '#0066c2', marginRight: '2px' }} />
+                      {emojiAndSymbolsList.map((item) => (
+                        <button
+                          key={item}
+                          type="button"
+                          onClick={() => insertSymbolAtCursor(item)}
+                          style={{ border: 'none', background: 'none', fontSize: '14px', cursor: 'pointer', padding: '2px 4px', borderRadius: '4px' }}
+                        >
+                          {item}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative', width: '100%', boxSizing: 'border-box', overflowWrap: 'break-word' }}>
+                  <EditorContent editor={editor} />
+                </div>
+
+                {attachedImageUrl && (
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
+                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#334155' }}>🖼️ Attached Canvas Image:</span>
+                    <div style={{ display: 'flex', gap: '8px' }}>
+                      <button
+                        onClick={copyImageToClipboard}
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Copy size={13} /> Copy Image
+                      </button>
+                      <a
+                        href={attachedImageUrl}
+                        download="linkedin-post-image.png"
+                        style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
+                      >
+                        <Download size={13} /> Download
+                      </a>
+                    </div>
+                  </div>
+                )}
+
+                <div className="draft-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' }}>
+                  <button 
+                    onClick={handleManualPost}
+                    style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxSizing: 'border-box' }}
+                  >
+                    <ExternalLink size={16} />
+                    <span>Copy Draft & Open LinkedIn</span>
+                  </button>
+
+                  <button 
+                    disabled={true}
+                    style={{ flex: 1, backgroundColor: '#94a3b8', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', opacity: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxSizing: 'border-box' }}
+                  >
+                    <Lock size={15} />
+                    <span>Publish Direct API (DM to Unlock)</span>
+                  </button>
+                </div>
               </div>
             </div>
-          </div>
 
-          {/* RIGHT COLUMN: PREVIEW */}
-          <div className="workspace-preview" style={{ position: 'sticky', top: '24px' }}>
-            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden' }}>
-              <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                  <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Canvas
-                </span>
-                <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
-              </div>
-
-              <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
-                <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-                  <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
-                    <Building2 size={20} />
-                  </div>
-                  <div>
-                    <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      Enterprise Cloud Solutions <CheckCircle2 size={13} style={{ color: '#0066c2' }} />
-                    </div>
-                    <div style={{ fontSize: '11px', color: '#64748b' }}>14,200 followers • Promoted</div>
-                    <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      Just now • <Globe size={10} />
-                    </div>
-                  </div>
+            {/* RIGHT COLUMN: PREVIEW */}
+            <div className="workspace-preview">
+              <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+                <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                    <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Canvas
+                  </span>
+                  <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
                 </div>
 
-                <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
-                  {editorHtml && editorHtml !== '<p></p>' ? (
-                    <div dangerouslySetInnerHTML={{ __html: editorHtml }} />
-                  ) : (
-                    <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Your generated content will dynamically render here...</span>
-                  )}
-                </div>
-
-                <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                    <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
-                    <span style={{ fontWeight: '600' }}>1,420</span>
+                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
+                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
+                    <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>
+                      <Building2 size={20} />
+                    </div>
+                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
+                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                        Enterprise Cloud Solutions <CheckCircle2 size={13} style={{ color: '#0066c2', flexShrink: 0 }} />
+                      </div>
+                      <div style={{ fontSize: '11px', color: '#64748b' }}>14,200 followers • Promoted</div>
+                      <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        Just now • <Globe size={10} />
+                      </div>
+                    </div>
                   </div>
-                  <div>48 comments • 12 reposts</div>
+
+                  <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px', overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}>
+                    {editorHtml && editorHtml !== '<p></p>' ? (
+                      <div className="break-word-all" dangerouslySetInnerHTML={{ __html: editorHtml }} />
+                    ) : (
+                      <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Your generated content will dynamically render here...</span>
+                    )}
+                  </div>
+
+                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                      <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
+                      <span style={{ fontWeight: '600' }}>1,420</span>
+                    </div>
+                    <div>48 comments • 12 reposts</div>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
 
-        </div>
+          </div>
+        )}
+
       </div>
     </div>
   );
