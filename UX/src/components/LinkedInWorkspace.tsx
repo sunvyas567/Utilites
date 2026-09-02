@@ -199,8 +199,126 @@ export async function checkBrowserAiAvailability(): Promise<BrowserAiCheckResult
 
     if (globalLM) {
       if (typeof globalLM.availability === 'function') {
-        const availability = await globalLM.availability();
+        const availability = await globalLM.availability(
+          {
+            expectedOutputs: [
+              { type: "text", languages: ["en"] } // Supported: 'de', 'en', 'es', 'fr', 'ja'
+            ]
+          }
+        );
+        console.log("availability: ", availability);
 
+        if (availability === 'available' || availability === 'readily') {
+          return { status: 'ready', message: 'Local AI is available.', availability };
+        }
+
+        if (availability === 'downloadable' || availability === 'after-download') {
+          return {
+            status: 'downloadable',
+            message: 'Local AI is supported, but the local model needs to be prepared.',
+            availability,
+          };
+        }
+
+        if (availability === 'downloading') {
+          return {
+            status: 'downloading',
+            message: 'Local AI is preparing the local model.',
+            availability,
+          };
+        }
+
+        return {
+          status: 'unavailable',
+          message: 'Local AI is not available on this browser or device.',
+          availability,
+        };
+      }
+
+      return {
+        status: 'ready',
+        message: 'A supported local AI API is available.',
+        availability: 'readily',
+      };
+    }
+
+    const aiObj = typeof window !== 'undefined'
+      ? ((window as any).ai || (navigator as any).ai)
+      : null;
+
+    if (aiObj?.languageModel) {
+      const getAvailability = async () => {
+        const options = {
+          expectedOutputs: [{ type: "text", languages: ["en"] }]
+        };
+
+        if (typeof aiObj.languageModel.availability === 'function') {
+          return await aiObj.languageModel.availability(options);
+        }
+        if (typeof aiObj.languageModel.capabilities === 'function') {
+          const caps = await aiObj.languageModel.capabilities(options);
+          return caps?.available;
+        }
+        return null;
+      };
+  
+
+      const available = await getAvailability();
+      console.log("aiObj availability: ", available);
+
+      if (available === 'readily' || available === 'available') {
+        return { status: 'ready', message: 'Local AI is available.', availability: available };
+      }
+
+      if (available === 'after-download' || available === 'downloadable') {
+        return {
+          status: 'downloadable',
+          message: 'Local AI is supported, but the local model needs to be prepared.',
+          availability: available,
+        };
+      }
+
+      if (available === 'downloading') {
+        return {
+          status: 'downloading',
+          message: 'Local AI is preparing the local model.',
+          availability: available,
+        };
+      }
+
+      return {
+        status: 'unavailable',
+        message: 'Local AI is not available on this browser or device.',
+        availability: available,
+      };
+    }
+
+    return {
+      status: 'unsupported',
+      message: 'This browser does not expose a supported local AI API.',
+    };
+  } catch (err: any) {
+    console.warn('Local AI availability check failed:', err);
+    return {
+      status: 'error',
+      message: err?.message || 'Local AI could not be checked.',
+    };
+  }
+}
+export async function checkBrowserAiAvailabilityOLD(): Promise<BrowserAiCheckResult> {
+  try {
+    const globalLM = typeof LanguageModel !== 'undefined'
+      ? LanguageModel
+      : (typeof window !== 'undefined' ? (window as any).LanguageModel : undefined);
+
+    if (globalLM) {
+      if (typeof globalLM.availability === 'function') {
+        const availability = await globalLM.availability({
+          expectedOutputs: [
+            { type: "text", languages: ["en"] } // Supported: 'de', 'en', 'es', 'fr', 'ja'
+          ]
+        });
+        console.log("availability: ",availability)
         if (availability === 'available' || availability === 'readily') {
           return { status: 'ready', message: 'Local AI is available.', availability };
         }
@@ -293,7 +411,11 @@ export async function getBrowserAiSession(
 
     if (globalLM) {
       const availability = typeof globalLM.availability === 'function'
-        ? await globalLM.availability()
+        ? await globalLM.availability({
+          expectedOutputs: [
+            { type: "text", languages: ["en"] } // Supported: 'de', 'en', 'es', 'fr', 'ja'
+          ]
+        })
         : 'readily';
 
       if (
@@ -318,7 +440,16 @@ export async function getBrowserAiSession(
           }
         };
 
-        return await globalLM.create({ monitor });
+        return await globalLM.create({ monitor },
+          {
+            expectedInputs: [
+              { type: "text", languages: ["en"] }
+            ],
+            expectedOutputs: [
+              { type: "text", languages: ["en"] }
+            ]
+          }
+        );
       }
     }
 
@@ -340,7 +471,14 @@ export async function getBrowserAiSession(
         return null;
       }
 
-      return await aiObj.languageModel.create();
+      return await aiObj.languageModel.create({
+        expectedInputs: [
+          { type: "text", languages: ["en"] }
+        ],
+        expectedOutputs: [
+          { type: "text", languages: ["en"] }
+        ]
+      });
     }
   } catch (err) {
     console.warn('Failed to initialize local AI:', err);
@@ -771,6 +909,21 @@ export default function LinkedInWorkspace() {
     setGenerationStage(stage);
   };
 
+  const formatUserFriendlyError = (rawError?: string): string => {
+    if (!rawError) return 'Unable to complete request. Please try again.';
+    const err = rawError.toLowerCase();
+
+    if (err.includes('429') || err.includes('quota') || err.includes('rate')) {
+      return 'The AI service is currently busy. Please wait a moment and try again.';
+    }
+    if (err.includes('401') || err.includes('403') || err.includes('api_key') || err.includes('key')) {
+      return 'Authentication failed. Please verify your API key and configuration.';
+    }
+    if (err.includes('500') || err.includes('502') || err.includes('503') || err.includes('overloaded')) {
+      return 'The server AI service is temporarily unavailable. Please try again shortly.';
+    }
+    return 'Generation failed due to a server error. Please try again.';
+  };
   const generateMultiVariants = async () => {
     setIsGenerating(true);
     setVariants([]);
@@ -803,10 +956,22 @@ export default function LinkedInWorkspace() {
       return;
     }
 
-    const createVariant = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
+    const createVariantOLD = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
       id,
       title,
       badge: details?.success ? (details.provider === 'browser' ? 'Local AI' : (aiMode === 'demo' ? 'Demo Mode Server AI' : `Cloud AI (${details.provider})`)) : 'Generating...',
+      contentHtml: formatToHtml(text, id === 'v2'),
+      details,
+    });
+
+    const createVariant = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
+      id,
+      title,
+      badge: details?.error 
+        ? 'Failed' 
+        : details?.success 
+        ? (details.provider === 'browser' ? 'Local AI' : (aiMode === 'demo' ? 'Demo Mode Server AI' : `Cloud AI (${details.provider})`)) 
+        : 'Generating...',
       contentHtml: formatToHtml(text, id === 'v2'),
       details,
     });
@@ -912,7 +1077,9 @@ export default function LinkedInWorkspace() {
 
           if (!response.ok || !response.body) {
             const errorBody = await response.text();
-            details.error = `Cloud streaming API failure (${response.status}): ${errorBody}`;
+            // CHANGED: Format raw error
+            details.error = formatUserFriendlyError(`API failure (${response.status}): ${errorBody}`);
+            //details.error = `Cloud streaming API failure (${response.status}): ${errorBody}`;
             details.timeMs = Math.round(performance.now() - start);
             return { text: '', details };
           }
@@ -934,6 +1101,34 @@ export default function LinkedInWorkspace() {
           };
 
           const consumeEvent = (eventBlock: string) => {
+            const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
+            if (!dataLines.length) return;
+            const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
+            if (!data || data === '[DONE]') return;
+
+            let chunk: any = data;
+            try { chunk = JSON.parse(data); } catch { return; }
+
+            // Only handle incremental tokens from 'token' event types
+            if (chunk?.type === 'token' && typeof chunk?.text === 'string') {
+              accumulated += chunk.text;
+              const base = styleFormat === 'story' ? 20 : 55;
+              const cap = styleFormat === 'story' ? 45 : 80;
+              const progress = Math.min(cap, base + Math.floor(accumulated.length / 30));
+              updateGenerationProgress(
+                progress,
+                `AI — streaming ${styleFormat === 'story' ? 'Narrative' : 'Takeaways'} variant...`
+              );
+              applyStreamingText();
+            }
+
+            if (chunk?.model) details.model = chunk.model;
+            if (chunk?.provider) details.provider = chunk.provider;
+            if (chunk?.usage) details.usage = chunk.usage;
+            if (chunk?.rate_limit || chunk?.rateLimit) details.rateLimit = chunk.rate_limit || chunk.rateLimit;
+            if (chunk?.type === 'error' && chunk?.error) details.error = formatUserFriendlyError(String(chunk.error));
+          };
+          const consumeEventOLD = (eventBlock: string) => {
             const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
             if (!dataLines.length) return;
             const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
@@ -982,7 +1177,8 @@ export default function LinkedInWorkspace() {
           return { text: accumulated.trim(), details };
         } catch (error: any) {
           details.timeMs = Math.round(performance.now() - start);
-          details.error = error?.message || String(error);
+         // details.error = error?.message || String(error);
+          details.error = formatUserFriendlyError(error?.message || String(error));
 
           const title = styleFormat === 'story'
             ? `📖 ${computedGoal} (Narrative Hook)`
@@ -1715,9 +1911,12 @@ export default function LinkedInWorkspace() {
                               <div style={{ marginBottom: '4px' }}><strong>Params:</strong> T={v.details.params.temperature ?? '-'} / max={v.details.params.max_tokens ?? '-'}</div>
                             )}
                             <div><strong>Time:</strong> {v.details.timeMs ?? '-'} ms</div>
-                            {v.details.error && (
-                              <div style={{ marginTop: '6px', color: '#b91c1c' }}><strong>Error:</strong> {v.details.error}</div>
+                            {v.details?.error && (
+                              <div style={{ marginTop: '6px', color: '#b91c1c', fontWeight: '500' }}>
+                                <strong>Error:</strong> {formatUserFriendlyError(v.details.error)}
+                              </div>
                             )}
+                        
                           </div>
                         )}
                         

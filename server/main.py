@@ -186,7 +186,13 @@ def try_gemini_generation(api_key: str, prompt: str, model_candidates: list[str]
             response = requests.post(url, json=body, headers={"Content-Type": "application/json"}, timeout=60)
             if response.status_code == 200:
                 payload_json = response.json()
-                text = payload_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                #text = payload_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                # Replace this line in try_gemini_generation:
+                # text = payload_json.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+
+                # With this:
+                parts = payload_json.get("candidates", [{}])[0].get("content", {}).get("parts", [])
+                text = "".join(part.get("text", "") for part in parts if isinstance(part, dict) and "text" in part)
                 if text:
                     print("text : output - ",text)
                     return True, text, model_name, None
@@ -373,20 +379,26 @@ async def stream_llm(payload: LLMInvocationRequest):
 
     provider = (payload.provider or "").strip().lower()
 
+    #print("PROVIDER : ",provider)
+
     async def event_stream():
         if payload.prefer_browser:
+           # print("return 1")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Browser AI is handled client-side.'})}\n\n"
             return
 
         if payload.prefer_local:
+            #print("return 2")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Local model execution is not implemented.'})}\n\n"
             return
 
         if not payload.prefer_cloud:
+            #print("return 3")
             yield f"data: {json.dumps({'type': 'error', 'error': 'Cloud execution is disabled.'})}\n\n"
             return
 
         if not provider or provider in ("browser", "local"):
+            #print("return 4")
             yield f"data: {json.dumps({'type': 'error', 'error': 'A valid cloud provider is required.'})}\n\n"
             return
 
@@ -419,19 +431,42 @@ async def stream_llm(payload: LLMInvocationRequest):
             usage_payload = None
             finish_reason = None
 
+            print("RESPONSE in SERVER - ", response)
+            #for chunk in response:
+            #    choices = getattr(chunk, "choices", None) or []
+
+            #    if choices:
+            #        choice = choices[0]
+            #        delta = getattr(choice, "delta", None)
+            #        token = getattr(delta, "content", None) if delta else None
+
+            #        if token:
+            #            accumulated += token
+            #            yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+
+            #        finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+
             for chunk in response:
                 choices = getattr(chunk, "choices", None) or []
 
                 if choices:
-                    choice = choices[0]
-                    delta = getattr(choice, "delta", None)
-                    token = getattr(delta, "content", None) if delta else None
+                        choice = choices[0]
+                        delta = getattr(choice, "delta", None) or (choice.get("delta") if isinstance(choice, dict) else None)
+                        token = None
 
-                    if token:
-                        accumulated += token
-                        yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+                        if delta:
+                            if isinstance(delta, dict):
+                                token = delta.get("content") or delta.get("text")
+                            else:
+                                token = getattr(delta, "content", None) or getattr(delta, "text", None)
+                        elif hasattr(choice, "text"):
+                            token = choice.text
 
-                    finish_reason = getattr(choice, "finish_reason", None) or finish_reason
+                        if token:
+                            accumulated += token
+                            yield f"data: {json.dumps({'type': 'token', 'text': token})}\n\n"
+
+                        finish_reason = getattr(choice, "finish_reason", None) or (choice.get("finish_reason") if isinstance(choice, dict) else finish_reason)
 
                 usage = getattr(chunk, "usage", None)
                 if usage is not None:
@@ -452,6 +487,8 @@ async def stream_llm(payload: LLMInvocationRequest):
                 "character_count": len(accumulated),
             }
 
+            #print(f"data: {json.dumps({'type': 'complete', 'text': accumulated, 'usage': usage_payload, 'meta': meta, 'provider': provider, 'model': payload.model})}\n\n",flush=True)
+        
             yield f"data: {json.dumps({'type': 'complete', 'text': accumulated, 'usage': usage_payload, 'meta': meta, 'provider': provider, 'model': payload.model})}\n\n"
 
         except Exception as exc:
