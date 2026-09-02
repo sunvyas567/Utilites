@@ -531,7 +531,7 @@ Formatting Rule: ${formatInstructions}
 Keep the post crisp and useful, around 120-220 words. Return plain text only, without commentary or labels.`;
 };
 
-export const generateWithBrowserAi = async (
+export const generateWithBrowserAiOLD = async (
   topicText: string,
   goal: string,
   tone: string,
@@ -611,6 +611,132 @@ export const generateWithBrowserAi = async (
     }
 
     return { text: text.trim(), details };
+  } catch (error: any) {
+    const end = performance.now();
+    details.timeMs = Math.round(end - start);
+    details.error = error?.message || String(error);
+    return { text: '', details };
+  }
+};
+// --- Helper: Sentence Boundary Sanitizer ---
+const sanitizeIncompleteSentence = (text: string): string => {
+  const trimmed = text.trim();
+  if (!trimmed || /[.!?:]["']?$/.test(trimmed)) return trimmed;
+
+  // Find the last clean sentence terminator
+  const lastIndex = Math.max(
+    trimmed.lastIndexOf('.'),
+    trimmed.lastIndexOf('!'),
+    trimmed.lastIndexOf('?')
+  );
+
+  return lastIndex !== -1 ? trimmed.slice(0, lastIndex + 1) : trimmed;
+};
+// --- 1. Browser AI Generator with Auto-Continuation ---
+// 1. Pass existing session into generateWithBrowserAi
+export const generateWithBrowserAi = async (
+  topicText: string,
+  goal: string,
+  tone: string,
+  styleFormat: 'story' | 'list',
+  onChunk?: (text: string) => void,
+  existingSession?: any // Pass active session here
+): Promise<BrowserAiResult> => {
+  const prompt = buildGenerationPrompt(topicText, goal, tone, styleFormat);
+  const start = performance.now();
+
+  const details: VariantDetails = {
+    provider: 'browser',
+    success: false,
+    params: { temperature: 0.7, max_tokens: 1200 },
+    timeMs: 0,
+  };
+
+  try {
+    // Reuse passed session or fallback to session initialization
+    const session = existingSession || (await getBrowserAiSession());
+    if (!session) {
+      details.error = 'Local AI session is unavailable.';
+      return { text: '', details };
+    }
+    let accumulated = '';
+    let currentPrompt = prompt;
+    let continuationAttempts = 0;
+    const maxContinuations = 2;
+    let isComplete = false;
+    let lastResultObj: any = null;
+
+    // Auto-continuation loop to handle token caps or context cutoffs
+    while (!isComplete && continuationAttempts <= maxContinuations) {
+      let segmentText = '';
+
+      if (typeof session.promptStreaming === 'function') {
+        const stream = await session.promptStreaming(currentPrompt);
+        for await (const chunk of stream as any) {
+          lastResultObj = chunk;
+          const piece = typeof chunk === 'string'
+            ? chunk
+            : typeof chunk?.text === 'string'
+            ? chunk.text
+            : typeof chunk?.outputText === 'string'
+            ? chunk.outputText
+            : typeof chunk?.content === 'string'
+            ? chunk.content
+            : typeof chunk?.delta === 'string'
+            ? chunk.delta
+            : '';
+
+          if (piece) {
+            segmentText += piece;
+            onChunk?.(accumulated + segmentText);
+          }
+
+          if (chunk?.usage) details.usage = chunk.usage;
+          if (chunk?.model || chunk?.modelId) details.model = chunk.model || chunk.modelId;
+        }
+      } else if (typeof session.prompt === 'function') {
+        const res = await session.prompt(currentPrompt);
+        lastResultObj = res;
+        segmentText = typeof res === 'string' ? res : res?.text || res?.outputText || res?.content || '';
+      } else if (typeof session.generateContent === 'function') {
+        const res = await session.generateContent(currentPrompt);
+        lastResultObj = res;
+        segmentText = typeof res === 'string' ? res : res?.text || res?.outputText || res?.content || '';
+      }
+
+      accumulated += segmentText;
+      const trimmed = accumulated.trim();
+
+      // Check if text ends cleanly with terminal punctuation
+      if (!trimmed || /[.!?:]["']?$/.test(trimmed) || !segmentText.trim()) {
+        isComplete = true;
+      } else {
+        continuationAttempts++;
+        if (continuationAttempts <= maxContinuations) {
+          // Trigger continuation prompt from the exact cutoff tail
+          const snippet = trimmed.slice(-60);
+          currentPrompt = `Continue writing directly from this exact cutoff point: "${snippet}"`;
+        }
+      }
+    }
+
+    // Sanitize trailing incomplete sentence as a final fallback
+    accumulated = sanitizeIncompleteSentence(accumulated);
+    onChunk?.(accumulated);
+
+    const end = performance.now();
+    details.timeMs = Math.round(end - start);
+
+    details.model = lastResultObj?.model || lastResultObj?.modelId || lastResultObj?.provider || details.model || 'browser';
+    details.usage = lastResultObj?.usage || lastResultObj?.usageStats || lastResultObj?.tokenUsage || details.usage || undefined;
+    details.rateLimit = lastResultObj?.rate_limit || lastResultObj?.rateLimit || undefined;
+    details.success = Boolean(accumulated?.trim());
+
+    if (!details.success) {
+      details.error = lastResultObj?.error || lastResultObj?.message || 'Local AI returned no text.';
+    }
+
+    return { text: accumulated.trim(), details };
   } catch (error: any) {
     const end = performance.now();
     details.timeMs = Math.round(end - start);
@@ -794,15 +920,22 @@ export default function LinkedInWorkspace() {
 
     if (result.status === 'unsupported') {
       const ua = navigator.userAgent;
-      const browserName = /Firefox/i.test(ua)
-        ? 'Firefox'
-        : /Safari/i.test(ua) && !/Chrome|Chromium|Edg/i.test(ua)
-        ? 'Safari'
-        : /Edg/i.test(ua)
-        ? 'Edge'
-        : /Chrome|Chromium/i.test(ua)
-        ? 'Chrome'
-        : 'this browser';
+      
+      const isIOS = /iPhone|iPad|iPod/i.test(ua);
+      const isEdge = /Edg|EdgiOS/i.test(ua);
+      const isChrome = /Chrome|Chromium|CriOS/i.test(ua);
+      const isFirefox = /Firefox|FxiOS/i.test(ua);
+
+      let browserName = 'this browser';
+      if (isEdge) {
+        browserName = isIOS ? 'Edge on iOS' : 'Edge';
+      } else if (isChrome) {
+        browserName = isIOS ? 'Chrome on iOS' : 'Chrome';
+      } else if (isFirefox) {
+        browserName = isIOS ? 'Firefox on iOS' : 'Firefox';
+      } else if (/Safari/i.test(ua)) {
+        browserName = 'Safari';
+      }
 
       const unsupportedMessage =
         `Local AI is not available in ${browserName}. ` +
@@ -817,6 +950,7 @@ export default function LinkedInWorkspace() {
       });
       return;
     }
+    
 
     setBrowserAiStatus(result.status);
     setBrowserAiMessage(result.message);
@@ -909,7 +1043,36 @@ export default function LinkedInWorkspace() {
     setGenerationStage(stage);
   };
 
-  const formatUserFriendlyError = (rawError?: string): string => {
+  const formatUserFriendlyError = (err: string, provider?: string): string => {
+  // If the error originated explicitly from browser AI, do not check for API keys
+  if (provider === 'browser') {
+    return `Local Browser AI error: ${err}`;
+  }
+
+  const lowerErr = err.toLowerCase();
+  
+  // Use specific boundary matching instead of raw 'key'
+  const isAuthError = 
+    lowerErr.includes('401') || 
+    lowerErr.includes('403') || 
+    /\bapi_key\b|\bapikey\b|\bunauthorized\b|\binvalid api key\b/.test(lowerErr);
+  // Use exact matching or word boundaries for API key checks
+
+  if (isAuthError) {
+    return 'Authentication failed. Please verify your API key and configuration.';
+  }
+
+   if (err.includes('429') || err.includes('quota') || err.includes('rate')) {
+      return 'The AI service is currently busy. Please wait a moment and try again.';
+    }
+   if (err.includes('500') || err.includes('502') || err.includes('503') || err.includes('overloaded')) {
+      return 'The server AI service is temporarily unavailable. Please try again shortly.';
+    }
+    return 'Generation failed due to a server error. Please try again.';
+
+  //return err;
+};
+  const formatUserFriendlyErrorOLD = (rawError?: string): string => {
     if (!rawError) return 'Unable to complete request. Please try again.';
     const err = rawError.toLowerCase();
 
@@ -925,10 +1088,23 @@ export default function LinkedInWorkspace() {
     return 'Generation failed due to a server error. Please try again.';
   };
   const generateMultiVariants = async () => {
+
+    const contextText = prompt.trim();
+    
+    // Guard: Halt generation if prompt/voice input is empty
+    if (!contextText) {
+      setStatusMessage({ 
+        type: 'error', 
+        text: 'Please enter a topic or record voice input before generating.' 
+      });
+      return;
+    }
+
+    
     setIsGenerating(true);
     setVariants([]);
     updateGenerationProgress(5, 'Preparing AI generation...');
-    const contextText = prompt.trim() || 'General Corporate Update';
+    //const contextText = prompt.trim() || 'General Corporate Update';
     const computedGoal = detectGoalFromPrompt(contextText);
     const computedTone = selectedTone === 'Conversational' ? detectToneFromPrompt(contextText) : selectedTone;
 
@@ -1035,19 +1211,174 @@ export default function LinkedInWorkspace() {
 
       if (useBrowserAi && browserSession) {
         updateGenerationProgress(12, 'Local AI ready — generating draft...');
-
         updateGenerationProgress(20, 'Local AI — streaming draft...');
+        
         storyBrowser = await generateWithBrowserAi(
-          contextText, computedGoal, computedTone, 'story',
+          contextText, 
+          computedGoal, 
+          computedTone, 
+          'story',
           (partial) => {
             const progress = Math.min(45, 20 + Math.floor(partial.length / 30));
             updateGenerationProgress(progress, 'Local AI — streaming draft...');
-          }
+          },
+          browserSession // Pass active session object directly!
         );
+        
         updateGenerationProgress(82, 'Local AI — draft complete...');
       }
+      //if (useBrowserAi && browserSession) {
+      //  updateGenerationProgress(12, 'Local AI ready — generating draft...');
 
+      //  updateGenerationProgress(20, 'Local AI — streaming draft...');
+      //  storyBrowser = await generateWithBrowserAi(
+      //    contextText, computedGoal, computedTone, 'story',
+      //    (partial) => {
+      //      const progress = Math.min(45, 20 + Math.floor(partial.length / 30));
+      //      updateGenerationProgress(progress, 'Local AI — streaming draft...');
+      //    }
+      //  );
+      //  updateGenerationProgress(82, 'Local AI — draft complete...');
+      //}
+
+      // --- 2. Cloud SSE Stream Handler with Completion Fallback ---
       const streamCloudVariant = async (styleFormat: 'story' | 'list', variantId: string): Promise<CloudAiResult> => {
+        const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, styleFormat, meetingContext);
+        const start = performance.now();
+        const details: VariantDetails = {
+          provider: effectiveProvider || cloudProvider,
+          model: effectiveModel || undefined,
+          success: false,
+          params: { temperature: 0.7, max_tokens: 1200 },
+          timeMs: 0,
+        };
+        let accumulated = '';
+
+        try {
+          // FIX: Pass cloudApiKey if available, otherwise fall back to demo_mode in 'auto' mode
+          const isDemoMode = aiMode === 'demo' || (aiMode === 'auto' && !cloudApiKey);
+          const effectiveApiKey = cloudApiKey || undefined;
+          const response = await fetch(`${BACKEND_URL}/api/v1/llm/stream`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
+            body: JSON.stringify({
+              provider: effectiveProvider,
+              model: effectiveModel,
+              prompt: generatedPrompt,
+              //api_key: (aiMode === 'cloud') ? (cloudApiKey || undefined) : undefined,
+              //demo_mode: aiMode === 'demo' || (aiMode === 'auto' && !browserSession),
+              api_key: effectiveApiKey,
+              demo_mode: isDemoMode,
+              prefer_browser: false,
+              prefer_cloud: true,
+              params: { temperature: 0.7, max_tokens: 1200 },
+            }),
+          });
+
+          if (!response.ok || !response.body) {
+            const errorBody = await response.text();
+            details.error = formatUserFriendlyError(`API failure (${response.status}): ${errorBody}`);
+            details.timeMs = Math.round(performance.now() - start);
+            return { text: '', details };
+          }
+
+          const reader = response.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = '';
+
+          const applyStreamingText = (textOverride?: string) => {
+            const displayText = textOverride !== undefined ? textOverride : accumulated;
+            const title = styleFormat === 'story'
+              ? `📖 ${computedGoal} (Narrative Hook)`
+              : `📋 ${computedGoal} (Bulleted Takeaways)`;
+            const streamingDetails = { ...details, success: Boolean(displayText.trim()), timeMs: Math.round(performance.now() - start) };
+            setVariants((current) => {
+              const existing = current.filter((v) => v.id !== variantId);
+              const next = [...existing, createVariant(variantId, title, displayText, streamingDetails)];
+              return next.sort((a, b) => a.id.localeCompare(b.id));
+            });
+          };
+
+          const consumeEvent = (eventBlock: string) => {
+            const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
+            if (!dataLines.length) return;
+            const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
+            if (!data || data === '[DONE]') return;
+
+            let chunk: any = data;
+            try { chunk = JSON.parse(data); } catch { return; }
+
+            // Handle incremental tokens
+            if (chunk?.type === 'token' && typeof chunk?.text === 'string') {
+              accumulated += chunk.text;
+              const base = styleFormat === 'story' ? 20 : 55;
+              const cap = styleFormat === 'story' ? 45 : 80;
+              const progress = Math.min(cap, base + Math.floor(accumulated.length / 30));
+              updateGenerationProgress(
+                progress,
+                `AI — streaming ${styleFormat === 'story' ? 'Narrative' : 'Takeaways'} variant...`
+              );
+              applyStreamingText();
+            }
+
+            if (chunk?.model) details.model = chunk.model;
+            if (chunk?.provider) details.provider = chunk.provider;
+            if (chunk?.usage) details.usage = chunk.usage;
+            if (chunk?.rate_limit || chunk?.rateLimit) details.rateLimit = chunk.rate_limit || chunk.rateLimit;
+            if (chunk?.type === 'error' && chunk?.error) details.error = formatUserFriendlyError(String(chunk.error));
+          };
+
+          while (true) {
+            const { value, done } = await reader.read();
+            if (value) {
+              buffer += decoder.decode(value, { stream: !done });
+              const events = buffer.split(/\r?\n\r?\n/);
+              buffer = events.pop() || '';
+              events.forEach(consumeEvent);
+            }
+            if (done) break;
+          }
+
+          // Flush remaining buffer data
+          if (buffer.trim()) consumeEvent(buffer);
+
+          // Final completion pass: sanitize text if trailing sentence is incomplete
+          accumulated = sanitizeIncompleteSentence(accumulated);
+
+          details.timeMs = Math.round(performance.now() - start);
+          details.success = Boolean(accumulated.trim()) && !details.error;
+          if (!details.success && !details.error) details.error = 'Cloud streaming returned no usable text.';
+
+          applyStreamingText(accumulated);
+          return { text: accumulated.trim(), details };
+        } catch (error: any) {
+          details.timeMs = Math.round(performance.now() - start);
+          details.error = formatUserFriendlyError(error?.message || String(error));
+
+          // Ensure state sanitization on error
+          accumulated = sanitizeIncompleteSentence(accumulated);
+
+          const title = styleFormat === 'story'
+            ? `📖 ${computedGoal} (Narrative Hook)`
+            : `📋 ${computedGoal} (Bulleted Takeaways)`;
+          const streamingDetails = {
+            ...details,
+            success: Boolean(accumulated.trim()),
+            timeMs: Math.round(performance.now() - start),
+          };
+          setVariants((current) => {
+            const existing = current.filter((v) => v.id !== variantId);
+            const next = [
+              ...existing,
+              createVariant(variantId, title, accumulated, streamingDetails),
+            ];
+            return next.sort((a, b) => a.id.localeCompare(b.id));
+          });
+
+          return { text: accumulated.trim(), details };
+        }
+      };
+      const streamCloudVariantOLD = async (styleFormat: 'story' | 'list', variantId: string): Promise<CloudAiResult> => {
         const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, styleFormat, meetingContext);
         const start = performance.now();
         const details: VariantDetails = {
