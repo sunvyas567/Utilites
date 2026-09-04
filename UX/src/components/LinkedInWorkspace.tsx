@@ -1,4 +1,3 @@
-// Declare experimental globals for browser Speech and AI APIs
 declare global {
   var LanguageModel: any;
   interface Window {
@@ -8,22 +7,29 @@ declare global {
     webkitSpeechRecognition?: any;
   }
 }
-
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef} from 'react';
 import { useEditor, EditorContent } from '@tiptap/react';
 import StarterKit from '@tiptap/starter-kit';
 import Placeholder from '@tiptap/extension-placeholder';
 import Link from '@tiptap/extension-link';
 import Image from '@tiptap/extension-image';
-import { 
-  Mic, MicOff, Sparkles, Building2, CheckCircle2, 
-  Bold, Italic, List, ListOrdered, Smile, Eye, Lock, 
-  Globe, ExternalLink, Key, Link as LinkIcon, Image as ImageIcon, Download, Copy, EyeOff,
-  ArrowRight, ShieldCheck, Zap, Layout
-} from 'lucide-react';
+//import { WorkspaceProps, PostData } from '../types/linkedin';
+//import { PostEditor } from '../components/PostEditor';
+//import { PostPreview } from '../components/PostPreview';
+//import { AiControlTab } from '../components/AiControlsTab';
+//import { convertToLinkedInUnicode } from '../utils/unicodeUtils';
+//import { useVoiceDictation } from '../hooks/useVoiceDictation';
+//import { checkBrowserAiAvailability, generateWithBrowserAi } from '../services/aiService';
 
-const LINKEDIN_MAX_CHARS = 3000;
-const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:8000';
+import { 
+  Sparkles, Mic, MicOff, ShieldCheck, Zap, ArrowRight, 
+  Layout, Key, Edit3, Eye, FileText, Bot, Sliders,EyeOff,CheckCircle2,RefreshCw
+} from 'lucide-react';
+import { 
+  Bold, Italic, Lock, 
+  ExternalLink,Link as LinkIcon, Image as ImageIcon, ThumbsUp,Globe,MessageSquare,Repeat2,
+  SendHorizontal,Building2,X,AlertCircle,ChevronLeft, ChevronRight
+} from 'lucide-react';
 
 type VariantDetails = {
   provider: string;
@@ -61,6 +67,11 @@ type CloudAiResult = {
   details: VariantDetails;
 };
 
+
+const LINKEDIN_MAX_CHARS = 3000;
+const BACKEND_URL = (import.meta as any).env?.VITE_BACKEND_URL || 'http://localhost:8000';
+
+// Fallback constants for context selection & tones
 const MEETING_CONTEXTS = [
   { id: 'post_event', label: 'After an event / conference', hint: 'Share a key takeaway, observation, or connection from the event.' },
   { id: 'before_event', label: 'Before an event / conference', hint: 'Create anticipation, invite conversations, or share what you expect to learn.' },
@@ -85,96 +96,7 @@ const CLOUD_PROVIDERS = [
   { id: 'openai', name: 'OpenAI', defaultModel: 'gpt-4o-mini', models: ['gpt-4o-mini', 'gpt-4o', 'gpt-3.5-turbo'] },
   { id: 'anthropic', name: 'Anthropic Claude', defaultModel: 'claude-3-5-sonnet-20241022', models: ['claude-3-5-sonnet-20241022', 'claude-3-haiku-20240307'] },
 ];
-
-const toUnicodeBold = (str: string): string => {
-  return str.replace(/[A-Za-z0-9]/g, (char) => {
-    const code = char.charCodeAt(0);
-    if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d5d4 + (code - 65));
-    if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d5ee + (code - 97));
-    if (code >= 48 && code <= 57) return String.fromCodePoint(0x1d7ec + (code - 48));
-    return char;
-  });
-};
-
-const toUnicodeItalic = (str: string): string => {
-  return str.replace(/[A-Za-z]/g, (char) => {
-    const code = char.charCodeAt(0);
-    if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d434 + (code - 65));
-    if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d44e + (code - 97));
-    return char;
-  });
-};
-
-const convertHtmlToLinkedInText = (html: string): string => {
-  if (!html) return '';
-  const tempDiv = document.createElement('div');
-  tempDiv.innerHTML = html;
-
-  tempDiv.querySelectorAll('a').forEach((a) => {
-    const href = a.getAttribute('href');
-    if (href) a.textContent = ` ${href} `;
-  });
-
-  tempDiv.querySelectorAll('img').forEach((img) => img.remove());
-
-  tempDiv.querySelectorAll('strong, b').forEach((node) => {
-    node.textContent = toUnicodeBold(node.textContent || '');
-  });
-  tempDiv.querySelectorAll('em, i').forEach((node) => {
-    node.textContent = toUnicodeItalic(node.textContent || '');
-  });
-
-  tempDiv.querySelectorAll('li').forEach((li) => {
-    const parent = li.parentElement;
-    if (parent && parent.tagName === 'OL') {
-      const index = Array.from(parent.children).indexOf(li) + 1;
-      li.textContent = `   ${index}. ${li.textContent?.trim()}\n`;
-    } else {
-      li.textContent = `   • ${li.textContent?.trim()}\n`;
-    }
-  });
-
-  tempDiv.querySelectorAll('p, h1, h2, h3').forEach((block) => {
-    block.append('\n\n');
-  });
-
-  return (tempDiv.textContent || tempDiv.innerText || '').trim().slice(0, LINKEDIN_MAX_CHARS);
-};
-
-const formatToHtml = (rawText: string, isListVariant: boolean): string => {
-  if (!rawText) return '';
-  
-  const lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
-  const htmlBlocks: string[] = [];
-  let currentListItems: string[] = [];
-
-  const flushList = () => {
-    if (currentListItems.length > 0) {
-      const listHtml = `<ul style="margin: 8px 0; padding-left: 20px;">` +
-        currentListItems.map((item) => `<li style="margin-bottom: 6px;">${item}</li>`).join('') +
-        `</ul>`;
-      htmlBlocks.push(listHtml);
-      currentListItems = [];
-    }
-  };
-
-  const bulletRegex = /^([•\-*▪🔹▸▶⚡✅◈]|\d+[\.\)])\s*/;
-
-  for (const line of lines) {
-    const isBulletLine = bulletRegex.test(line);
-
-    if (isListVariant && isBulletLine) {
-      const cleanItem = line.replace(bulletRegex, '').trim();
-      if (cleanItem) currentListItems.push(cleanItem);
-    } else {
-      flushList();
-      htmlBlocks.push(`<p style="margin-bottom: 10px;">${line}</p>`);
-    }
-  }
-
-  flushList();
-  return htmlBlocks.join('');
-};
+const tonesList = ['Professional', 'Action-Oriented', 'Storytelling', 'Bold / Thought-Provoking', 'Conversational', 'Empathetic'];
 
 export type BrowserAiAvailability =
   | 'checking'
@@ -305,101 +227,7 @@ export async function checkBrowserAiAvailability(): Promise<BrowserAiCheckResult
     };
   }
 }
-export async function checkBrowserAiAvailabilityOLD(): Promise<BrowserAiCheckResult> {
-  try {
-    const globalLM = typeof LanguageModel !== 'undefined'
-      ? LanguageModel
-      : (typeof window !== 'undefined' ? (window as any).LanguageModel : undefined);
 
-    if (globalLM) {
-      if (typeof globalLM.availability === 'function') {
-        const availability = await globalLM.availability({
-          expectedOutputs: [
-            { type: "text", languages: ["en"] } // Supported: 'de', 'en', 'es', 'fr', 'ja'
-          ]
-        });
-        console.log("availability: ",availability)
-        if (availability === 'available' || availability === 'readily') {
-          return { status: 'ready', message: 'Local AI is available.', availability };
-        }
-
-        if (availability === 'downloadable') {
-          return {
-            status: 'downloadable',
-            message: 'Local AI is supported, but the local model needs to be prepared.',
-            availability,
-          };
-        }
-
-        if (availability === 'downloading') {
-          return {
-            status: 'downloading',
-            message: 'Local AI is preparing the local model.',
-            availability,
-          };
-        }
-
-        return {
-          status: 'unavailable',
-          message: 'Local AI is not available on this browser or device.',
-          availability,
-        };
-      }
-
-      return {
-        status: 'ready',
-        message: 'A supported local AI API is available.',
-        availability: 'readily',
-      };
-    }
-
-    const aiObj = typeof window !== 'undefined'
-      ? ((window as any).ai || (navigator as any).ai)
-      : null;
-
-    if (aiObj?.languageModel) {
-      if (typeof aiObj.languageModel.capabilities === 'function') {
-        const caps = await aiObj.languageModel.capabilities();
-        const available = caps?.available;
-
-        if (available === 'readily') {
-          return { status: 'ready', message: 'Local AI is available.', availability: available };
-        }
-
-        if (available === 'after-download' || available === 'downloadable') {
-          return {
-            status: 'downloadable',
-            message: 'Local AI is supported, but the local model needs to be prepared.',
-            availability: available,
-          };
-        }
-
-        return {
-          status: 'unavailable',
-          message: 'Local AI is not available on this browser or device.',
-          availability: available,
-        };
-      }
-
-      return {
-        status: 'ready',
-        message: 'A supported local AI API is available.',
-        availability: 'readily',
-      };
-    }
-
-    return {
-      status: 'unsupported',
-      message: 'This browser does not expose a supported local AI API.',
-    };
-  } catch (err: any) {
-    console.warn('Local AI availability check failed:', err);
-    return {
-      status: 'error',
-      message: err?.message || 'Local AI could not be checked.',
-    };
-  }
-}
 
 export async function getBrowserAiSession(
   onDownloadProgress?: (progress: number) => void
@@ -531,93 +359,6 @@ Formatting Rule: ${formatInstructions}
 Keep the post crisp and useful, around 120-220 words. Return plain text only, without commentary or labels.`;
 };
 
-export const generateWithBrowserAiOLD = async (
-  topicText: string,
-  goal: string,
-  tone: string,
-  styleFormat: 'story' | 'list',
-  onChunk?: (text: string) => void
-): Promise<BrowserAiResult> => {
-  const prompt = buildGenerationPrompt(topicText, goal, tone, styleFormat);
-  const start = performance.now();
-
-  const details: VariantDetails = {
-    provider: 'browser',
-    success: false,
-    params: { temperature: 0.7, max_tokens: 1200 },
-    timeMs: 0,
-  };
-
-  try {
-    const session = await getBrowserAiSession();
-    if (!session) {
-      details.error = 'Local AI session is unavailable.';
-      return { text: '', details };
-    }
-
-    let result: any = null;
-    let accumulated = '';
-
-    // Prefer browser-native streaming when available.
-    if (typeof session.promptStreaming === 'function') {
-      const stream = await session.promptStreaming(prompt);
-      for await (const chunk of stream as any) {
-        const piece = typeof chunk === 'string'
-          ? chunk
-          : typeof chunk?.text === 'string'
-          ? chunk.text
-          : typeof chunk?.outputText === 'string'
-          ? chunk.outputText
-          : typeof chunk?.content === 'string'
-          ? chunk.content
-          : typeof chunk?.delta === 'string'
-          ? chunk.delta
-          : '';
-
-        if (piece) {
-          accumulated += piece;
-          onChunk?.(accumulated);
-        }
-
-        if (chunk?.usage) details.usage = chunk.usage;
-        if (chunk?.model || chunk?.modelId) details.model = chunk.model || chunk.modelId;
-      }
-      result = accumulated;
-    } else if (typeof session.prompt === 'function') {
-      result = await session.prompt(prompt);
-    } else if (typeof session.generateContent === 'function') {
-      result = await session.generateContent(prompt);
-    }
-
-    const end = performance.now();
-    details.timeMs = Math.round(end - start);
-
-    const text = typeof result === 'string'
-      ? result
-      : typeof result?.text === 'string'
-      ? result.text
-      : typeof result?.outputText === 'string'
-      ? result.outputText
-      : typeof result?.content === 'string'
-      ? result.content
-      : accumulated;
-
-    details.model = result?.model || result?.modelId || result?.provider || details.model || 'browser';
-    details.usage = result?.usage || result?.usageStats || result?.tokenUsage || details.usage || undefined;
-    details.rateLimit = result?.rate_limit || result?.rateLimit || undefined;
-    details.success = Boolean(text?.trim());
-    if (!details.success) {
-      details.error = result?.error || result?.message || 'Local AI returned no text.';
-    }
-
-    return { text: text.trim(), details };
-  } catch (error: any) {
-    const end = performance.now();
-    details.timeMs = Math.round(end - start);
-    details.error = error?.message || String(error);
-    return { text: '', details };
-  }
-};
 // --- Helper: Sentence Boundary Sanitizer ---
 const sanitizeIncompleteSentence = (text: string): string => {
   const trimmed = text.trim();
@@ -745,12 +486,115 @@ export const generateWithBrowserAi = async (
   }
 };
 
-export default function LinkedInWorkspace() {
+const toUnicodeBold = (str: string): string => {
+  return str.replace(/[A-Za-z0-9]/g, (char) => {
+    const code = char.charCodeAt(0);
+    if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d5d4 + (code - 65));
+    if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d5ee + (code - 97));
+    if (code >= 48 && code <= 57) return String.fromCodePoint(0x1d7ec + (code - 48));
+    return char;
+  });
+};
+
+const toUnicodeItalic = (str: string): string => {
+  return str.replace(/[A-Za-z]/g, (char) => {
+    const code = char.charCodeAt(0);
+    if (code >= 65 && code <= 90) return String.fromCodePoint(0x1d434 + (code - 65));
+    if (code >= 97 && code <= 122) return String.fromCodePoint(0x1d44e + (code - 97));
+    return char;
+  });
+};
+
+const convertHtmlToLinkedInText = (html: string): string => {
+  if (!html) return '';
+  const tempDiv = document.createElement('div');
+  tempDiv.innerHTML = html;
+
+  tempDiv.querySelectorAll('a').forEach((a) => {
+    const href = a.getAttribute('href');
+    if (href) a.textContent = ` ${href} `;
+  });
+
+  tempDiv.querySelectorAll('img').forEach((img) => img.remove());
+
+  tempDiv.querySelectorAll('strong, b').forEach((node) => {
+    node.textContent = toUnicodeBold(node.textContent || '');
+  });
+  tempDiv.querySelectorAll('em, i').forEach((node) => {
+    node.textContent = toUnicodeItalic(node.textContent || '');
+  });
+
+  tempDiv.querySelectorAll('li').forEach((li) => {
+    const parent = li.parentElement;
+    if (parent && parent.tagName === 'OL') {
+      const index = Array.from(parent.children).indexOf(li) + 1;
+      li.textContent = `   ${index}. ${li.textContent?.trim()}\n`;
+    } else {
+      li.textContent = `   • ${li.textContent?.trim()}\n`;
+    }
+  });
+
+  tempDiv.querySelectorAll('p, h1, h2, h3').forEach((block) => {
+    block.append('\n\n');
+  });
+
+  return (tempDiv.textContent || tempDiv.innerText || '').trim().slice(0, LINKEDIN_MAX_CHARS);
+};
+
+const formatToHtml = (rawText: string, isListVariant: boolean): string => {
+  if (!rawText) return '';
+  
+  const lines = rawText.split('\n').map((l) => l.trim()).filter((l) => l.length > 0);
+  const htmlBlocks: string[] = [];
+  let currentListItems: string[] = [];
+
+  const flushList = () => {
+    if (currentListItems.length > 0) {
+      const listHtml = `<ul style="margin: 8px 0; padding-left: 20px;">` +
+        currentListItems.map((item) => `<li style="margin-bottom: 6px;">${item}</li>`).join('') +
+        `</ul>`;
+      htmlBlocks.push(listHtml);
+      currentListItems = [];
+    }
+  };
+
+  const bulletRegex = /^([•\-*▪🔹▸▶⚡✅◈]|\d+[\.\)])\s*/;
+
+  for (const line of lines) {
+    const isBulletLine = bulletRegex.test(line);
+
+    if (isListVariant && isBulletLine) {
+      const cleanItem = line.replace(bulletRegex, '').trim();
+      if (cleanItem) currentListItems.push(cleanItem);
+    } else {
+      flushList();
+      htmlBlocks.push(`<p style="margin-bottom: 10px;">${line}</p>`);
+    }
+  }
+
+  flushList();
+  return htmlBlocks.join('');
+};
+
+function LinkedInWorkspace () {
   const [currentView, setCurrentView] = useState<'landing' | 'workspace'>('landing');
   const [showAuthConfig, setShowAuthConfig] = useState(false);
+  const [activeTab, setActiveTab] = useState<'inputs' | 'ai' | 'editor' | 'preview'>('inputs');
+  const [htmlContent, setHtmlContent] = useState('');
+  const [unicodeContent, setUnicodeContent] = useState('');
+  const [selectedModel, setSelectedModel] = useState('chrome-nano');
+  const [isLocalAiReady, setIsLocalAiReady] = useState(false);
+  const [isGenerating, setIsGenerating] = useState(false);
+
+  // User Inputs Tab States
+  const [meetingContext, setMeetingContext] = useState('general');
   const [prompt, setPrompt] = useState('');
-  const [selectedTone, setSelectedTone] = useState<string>('Conversational');
-  const [meetingContext, setMeetingContext] = useState<string>('general');
+  const [selectedTone, setSelectedTone] = useState('Professional');
+
+  const [variants, setVariants] = useState<VariantOption[]>([]);
+
+  // Tab state for mobile viewport layout switching ('editor' | 'preview')
+  const [mobileTab, setMobileTab] = useState<'editor' | 'preview'>('editor');
   
   // Cloud Provider & API Key States
   const [cloudProvider, setCloudProvider] = useState<string>('gemini');
@@ -760,8 +604,6 @@ export default function LinkedInWorkspace() {
   const [customModel, setCustomModel] = useState<string>('');
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
 
-  const [variants, setVariants] = useState<VariantOption[]>([]);
-  const [isGenerating, setIsGenerating] = useState<boolean>(false);
   const [generationProgress, setGenerationProgress] = useState<number>(0);
   const [generationStage, setGenerationStage] = useState<string>('');
   const [browserAiStatus, setBrowserAiStatus] = useState<BrowserAiAvailability>('checking');
@@ -788,7 +630,74 @@ export default function LinkedInWorkspace() {
   const tonesList = ['General / Custom','Conversational', 'Authoritative', 'Technical' ];
   const emojiAndSymbolsList = ['🔹', '▸', '▪', '✅', '⚡', '🚀', '💡', '📈', '🔥', '💬'];
 
-  // Handle Provider Change
+  const tabsNavRef = useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(true);
+
+  const checkScroll = () => {
+  if (tabsNavRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = tabsNavRef.current;
+      const maxScroll = scrollWidth - clientWidth;
+
+      // 1. Show left arrow if scrolled more than 3px from start
+      setCanScrollLeft(scrollLeft > 3);
+
+      // 2. Hide right arrow when within 10px of the end (handles zoom/device scaling)
+      setCanScrollRight(scrollLeft < maxScroll - 10);
+    }
+  //if (tabsNavRef.current) {
+   // const { scrollLeft, scrollWidth, clientWidth } = tabsNavRef.current;
+    // 5px buffer to handle sub-pixel rendering differences
+  //  setCanScrollLeft(scrollLeft > 5);
+   // setCanScrollRight(scrollLeft + clientWidth < scrollWidth - 5);
+  //}
+  };
+
+  useEffect(() => {
+    checkScroll();
+    // Re-check after 200ms to capture late browser rendering
+    // 2. Delayed check to wait for browser layout computation
+    const timer = setTimeout(() => {
+      checkScroll();
+    }, 200);
+
+    window.addEventListener('resize', checkScroll);
+    return () => {
+      clearTimeout(timer);
+      window.removeEventListener('resize', checkScroll);
+    };
+  //  const navEl = tabsNavRef.current;
+   // if (navEl) {
+    //  navEl.addEventListener('scroll', checkScroll);
+    //  window.addEventListener('resize', checkScroll);
+   //   return () => {
+       // navEl.removeEventListener('scroll', checkScroll);
+     //   window.removeEventListener('resize', checkScroll);
+    //  };
+   // }
+    
+  }, []);
+
+
+  const scrollTabs = (direction: 'left' | 'right') => {
+    if (tabsNavRef.current) {
+      const scrollAmount = direction === 'left' ? -180 : 180;
+      tabsNavRef.current.scrollBy({ left: scrollAmount, behavior: 'smooth' });
+    }
+
+    // Re-evaluate arrows during and after smooth scroll animation completes
+      setTimeout(checkScroll, 150);
+      setTimeout(checkScroll, 350);
+  };
+
+  const handleContentChange = (newHtml: string) => {
+    setHtmlContent(newHtml);
+    setUnicodeContent(convertHtmlToLinkedInText(newHtml));
+  };
+
+  
+
+    // Handle Provider Change
   const handleProviderChange = (providerId: string) => {
     setCloudProvider(providerId);
     const matched = CLOUD_PROVIDERS.find((p) => p.id === providerId);
@@ -859,7 +768,7 @@ export default function LinkedInWorkspace() {
     }
   }, []);
 
-  const toggleVoiceInput = () => {
+  const toggleListening = () => {
     if (!recognitionRef.current) {
       setStatusMessage({ type: 'error', text: 'Voice input is not supported in this browser. Try Chrome or Edge.' });
       return;
@@ -880,6 +789,26 @@ export default function LinkedInWorkspace() {
   };
 
   const initialContent = `<p>🚀 <strong>Exciting Milestone Ahead!</strong></p><p>We are modernizing our architecture to support real-time data processing and zero token overhead.</p>`;
+
+    const toggleVoiceInput = () => {
+    if (!recognitionRef.current) {
+      setStatusMessage({ type: 'error', text: 'Voice input is not supported in this browser. Try Chrome or Edge.' });
+      return;
+    }
+
+    if (isListening) {
+      recognitionRef.current.stop();
+      setIsListening(false);
+    } else {
+      try {
+        basePromptRef.current = prompt;
+        recognitionRef.current.start();
+        setIsListening(true);
+      } catch (err) {
+        console.error("Speech recognition start failed:", err);
+      }
+    }
+  };
 
   const editor = useEditor({
     extensions: [
@@ -1072,21 +1001,6 @@ export default function LinkedInWorkspace() {
 
   //return err;
 };
-  const formatUserFriendlyErrorOLD = (rawError?: string): string => {
-    if (!rawError) return 'Unable to complete request. Please try again.';
-    const err = rawError.toLowerCase();
-
-    if (err.includes('429') || err.includes('quota') || err.includes('rate')) {
-      return 'The AI service is currently busy. Please wait a moment and try again.';
-    }
-    if (err.includes('401') || err.includes('403') || err.includes('api_key') || err.includes('key')) {
-      return 'Authentication failed. Please verify your API key and configuration.';
-    }
-    if (err.includes('500') || err.includes('502') || err.includes('503') || err.includes('overloaded')) {
-      return 'The server AI service is temporarily unavailable. Please try again shortly.';
-    }
-    return 'Generation failed due to a server error. Please try again.';
-  };
   const generateMultiVariants = async () => {
 
     const contextText = prompt.trim();
@@ -1131,14 +1045,6 @@ export default function LinkedInWorkspace() {
       setGenerationStage('');
       return;
     }
-
-    const createVariantOLD = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
-      id,
-      title,
-      badge: details?.success ? (details.provider === 'browser' ? 'Local AI' : (aiMode === 'demo' ? 'Demo Mode Server AI' : `Cloud AI (${details.provider})`)) : 'Generating...',
-      contentHtml: formatToHtml(text, id === 'v2'),
-      details,
-    });
 
     const createVariant = (id: string, title: string, text: string, details?: VariantDetails): VariantOption => ({
       id,
@@ -1378,159 +1284,7 @@ export default function LinkedInWorkspace() {
           return { text: accumulated.trim(), details };
         }
       };
-      const streamCloudVariantOLD = async (styleFormat: 'story' | 'list', variantId: string): Promise<CloudAiResult> => {
-        const generatedPrompt = buildGenerationPrompt(contextText, computedGoal, computedTone, styleFormat, meetingContext);
-        const start = performance.now();
-        const details: VariantDetails = {
-          provider: effectiveProvider || cloudProvider,
-          model: effectiveModel || undefined,
-          success: false,
-          params: { temperature: 0.7, max_tokens: 1200 },
-          timeMs: 0,
-        };
-        let accumulated = '';
-
-        try {
-          const response = await fetch(`${BACKEND_URL}/api/v1/llm/stream`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Accept': 'text/event-stream' },
-            body: JSON.stringify({
-              provider: effectiveProvider,
-              model: effectiveModel,
-              prompt: generatedPrompt,
-              api_key: (aiMode === 'cloud') ? (cloudApiKey || undefined) : undefined,
-              demo_mode: aiMode === 'demo' || (aiMode === 'auto' && !browserSession),
-              prefer_browser: false,
-              prefer_cloud: true,
-              params: { temperature: 0.7, max_tokens: 1200 },
-            }),
-          });
-
-          if (!response.ok || !response.body) {
-            const errorBody = await response.text();
-            // CHANGED: Format raw error
-            details.error = formatUserFriendlyError(`API failure (${response.status}): ${errorBody}`);
-            //details.error = `Cloud streaming API failure (${response.status}): ${errorBody}`;
-            details.timeMs = Math.round(performance.now() - start);
-            return { text: '', details };
-          }
-
-          const reader = response.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = '';
-
-          const applyStreamingText = () => {
-            const title = styleFormat === 'story'
-              ? `📖 ${computedGoal} (Narrative Hook)`
-              : `📋 ${computedGoal} (Bulleted Takeaways)`;
-            const streamingDetails = { ...details, success: Boolean(accumulated.trim()), timeMs: Math.round(performance.now() - start) };
-            setVariants((current) => {
-              const existing = current.filter((v) => v.id !== variantId);
-              const next = [...existing, createVariant(variantId, title, accumulated, streamingDetails)];
-              return next.sort((a, b) => a.id.localeCompare(b.id));
-            });
-          };
-
-          const consumeEvent = (eventBlock: string) => {
-            const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
-            if (!dataLines.length) return;
-            const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
-            if (!data || data === '[DONE]') return;
-
-            let chunk: any = data;
-            try { chunk = JSON.parse(data); } catch { return; }
-
-            // Only handle incremental tokens from 'token' event types
-            if (chunk?.type === 'token' && typeof chunk?.text === 'string') {
-              accumulated += chunk.text;
-              const base = styleFormat === 'story' ? 20 : 55;
-              const cap = styleFormat === 'story' ? 45 : 80;
-              const progress = Math.min(cap, base + Math.floor(accumulated.length / 30));
-              updateGenerationProgress(
-                progress,
-                `AI — streaming ${styleFormat === 'story' ? 'Narrative' : 'Takeaways'} variant...`
-              );
-              applyStreamingText();
-            }
-
-            if (chunk?.model) details.model = chunk.model;
-            if (chunk?.provider) details.provider = chunk.provider;
-            if (chunk?.usage) details.usage = chunk.usage;
-            if (chunk?.rate_limit || chunk?.rateLimit) details.rateLimit = chunk.rate_limit || chunk.rateLimit;
-            if (chunk?.type === 'error' && chunk?.error) details.error = formatUserFriendlyError(String(chunk.error));
-          };
-          const consumeEventOLD = (eventBlock: string) => {
-            const dataLines = eventBlock.split(/\r?\n/).filter((line) => line.startsWith('data:'));
-            if (!dataLines.length) return;
-            const data = dataLines.map((line) => line.slice(5).trimStart()).join('\n');
-            if (!data || data === '[DONE]') return;
-
-            let chunk: any = data;
-            try { chunk = JSON.parse(data); } catch { /* plain text SSE */ }
-
-            const delta = typeof chunk === 'string'
-              ? chunk
-              : chunk?.text ?? chunk?.delta ?? chunk?.token ?? chunk?.content ?? chunk?.choices?.[0]?.delta?.content ?? chunk?.choices?.[0]?.text ?? '';
-            if (delta) {
-              accumulated += String(delta);
-              const base = styleFormat === 'story' ? 20 : 55;
-              const cap = styleFormat === 'story' ? 45 : 80;
-              const progress = Math.min(cap, base + Math.floor(accumulated.length / 30));
-              updateGenerationProgress(
-                progress,
-                `AI — streaming ${styleFormat === 'story' ? 'Narrative' : 'Takeaways'} variant...`
-              );
-              applyStreamingText();
-            }
-            if (chunk?.model) details.model = chunk.model;
-            if (chunk?.provider) details.provider = chunk.provider;
-            if (chunk?.usage) details.usage = chunk.usage;
-            if (chunk?.rate_limit || chunk?.rateLimit) details.rateLimit = chunk.rate_limit || chunk.rateLimit;
-            if (chunk?.error) details.error = String(chunk.error);
-          };
-
-          while (true) {
-            const { value, done } = await reader.read();
-            if (value) {
-              buffer += decoder.decode(value, { stream: !done });
-              const events = buffer.split(/\r?\n\r?\n/);
-              buffer = events.pop() || '';
-              events.forEach(consumeEvent);
-            }
-            if (done) break;
-          }
-          if (buffer.trim()) consumeEvent(buffer);
-
-          details.timeMs = Math.round(performance.now() - start);
-          details.success = Boolean(accumulated.trim()) && !details.error;
-          if (!details.success && !details.error) details.error = 'Cloud streaming returned no usable text.';
-          applyStreamingText();
-          return { text: accumulated.trim(), details };
-        } catch (error: any) {
-          details.timeMs = Math.round(performance.now() - start);
-         // details.error = error?.message || String(error);
-          details.error = formatUserFriendlyError(error?.message || String(error));
-
-          const title = styleFormat === 'story'
-            ? `📖 ${computedGoal} (Narrative Hook)`
-            : `📋 ${computedGoal} (Bulleted Takeaways)`;
-          const streamingDetails = {
-            ...details,
-            success: Boolean(accumulated.trim()),
-            timeMs: Math.round(performance.now() - start),
-          };
-          setVariants((current) => {
-            const existing = current.filter((v) => v.id !== variantId);
-            const next = [
-              ...existing,
-              createVariant(variantId, title, accumulated, streamingDetails),
-            ];
-            return next.sort((a, b) => a.id.localeCompare(b.id));
-          });
-
-          return { text: accumulated.trim(), details };
-        }
-      };
+  
 
       if (!storyBrowser?.details.success) {
         updateGenerationProgress(20, aiMode === 'demo' ? 'Demo Mode — streaming descriptive draft...' : 'AI — streaming descriptive draft...');
@@ -1587,455 +1341,707 @@ export default function LinkedInWorkspace() {
     }
   };
 
-  const insertSymbolAtCursor = (symbol: string) => {
-    if (editor) editor.chain().focus().insertContent(symbol).run();
-  };
-
   return (
-    <div className="workspace-shell" style={{ backgroundColor: '#f1f5f9', minHeight: '100vh', padding: '24px', fontFamily: 'system-ui, -apple-system, sans-serif', color: '#0f172a', width: '100%', maxWidth: '100vw', boxSizing: 'border-box', overflowX: 'hidden' }}>
+    <div className="min-h-screen bg-slate-50 text-slate-900 pb-20 md:pb-8">
+
+    {/* EMBEDDED FAILSAFE RESPONSIVE STYLES */}
+    <style>{`
       
-      <style>{`
-        * { box-sizing: border-box; }
-        .ProseMirror { outline: none; min-height: 160px; caret-color: #0066c2; overflow-wrap: break-word; word-break: break-word; }
-        .workspace-shell { overflow-x: hidden; width: 100%; max-width: 100vw; }
-        .workspace-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 24px; align-items: start; width: 100%; max-width: 100%; min-width: 0; box-sizing: border-box; }
-        .workspace-column { display: flex; flex-direction: column; gap: 20px; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }
-        .workspace-preview { position: sticky; top: 24px; min-width: 0; width: 100%; max-width: 100%; box-sizing: border-box; }
-        .workspace-card { box-sizing: border-box; width: 100%; max-width: 100%; min-width: 0; overflow-wrap: break-word; word-break: break-word; }
-        .header-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-        .hero-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 16px; margin-top: 24px; }
-        .cloud-custom-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; width: 100%; }
-        .break-word-all { overflow-wrap: anywhere !important; word-break: break-word !important; }
-        
-        @media (max-width: 900px) {
-          .workspace-grid { grid-template-columns: 1fr !important; }
-          .workspace-preview { position: static !important; }
+      .desktop-header-actions {
+        display: none !important;
+      }
+      .mobile-bottom-footer {
+        display: flex !important;
+      }
+
+      @media (min-width: 768px) {
+        .desktop-header-actions {
+          display: flex !important;
+          flex-direction: row !important;
+          align-items: center !important;
+          gap: 8px !important;
         }
-        @media (max-width: 640px) {
-          .workspace-shell { padding: 12px !important; }
-          .workspace-header { 
-            padding: 12px !important; 
-            flex-direction: column !important; 
-            align-items: stretch !important; 
-            gap: 12px !important; 
-          }
-          .workspace-header-title { font-size: 15px !important; line-height: 1.3 !important; }
-          .workspace-header-subtitle { font-size: 11px !important; }
-          .header-actions { 
-            width: 100% !important; 
-            flex-direction: column !important; 
-            align-items: stretch !important; 
-            gap: 8px !important; 
-          }
-          .header-actions button { width: 100% !important; justify-content: center !important; text-align: center !important; }
-          .workspace-card { padding: 14px !important; border-radius: 12px !important; }
-          .toolbar-wrap { overflow-x: auto; flex-wrap: nowrap !important; padding-bottom: 2px; maxWidth: 100%; }
-          .emoji-strip { overflow-x: auto; flex-wrap: nowrap !important; }
-          .draft-actions { flex-direction: column !important; }
-          .draft-actions button { width: 100%; }
-          .cloud-custom-grid { grid-template-columns: 1fr !important; }
-          .status-row { align-items: flex-start !important; flex-direction: column !important; }
-          .status-row > div:last-child { width: 100%; }
-          .status-row button { flex: 1; }
-          .status-banner {
-            flex-direction: column !important;
-            align-items: flex-start !important;
-            gap: 8px !important;
-            padding: 10px 12px !important;
-          }
-          .status-banner-text { width: 100% !important; word-break: break-word !important; }
-          .status-banner-close { align-self: flex-end !important; margin-top: -24px !important; }
+        .mobile-bottom-footer {
+          display: none !important;
         }
-        .ProseMirror-focused { border-color: #0066c2 !important; box-shadow: 0 0 0 3px rgba(0, 102, 194, 0.15); }
-        .ProseMirror ::selection { background-color: #bfdbfe !important; color: #1e3a8a !important; }
-      `}</style>
+      }
+      /* Hide scroll indicator buttons on tablet/desktop (>=768px) */
+      @media (min-width: 768px) {
+          .tab-scroll-arrow {
+            display: none !important;
+          }
+        }
+      .workspace-header,
+      .workspace-card {
+        width: 100% !important;
+        margin: 0 auto !important;
+        box-sizing: border-box !important;
+      }
 
-      <div style={{ maxWidth: '1280px', margin: '0 auto', display: 'flex', flexDirection: 'column', gap: '20px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-        {/* HEADER BAR (Reduced Height for Mobile) */}
-        <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '14px', padding: '10px 16px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0, flex: '1 1 auto' }}>
-            <div style={{ width: '34px', height: '34px', backgroundColor: '#0f172a', color: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-              <Building2 size={18} />
-            </div>
-            <div style={{ minWidth: 0, overflow: 'hidden' }}>
-              <h1 className="workspace-header-title" style={{ margin: 0, fontSize: '15px', fontWeight: '700', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>Sunarc LinkedIn Posts Draft Creator</h1>
-              <p className="workspace-header-subtitle" style={{ margin: 0, fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', lineHeight: '1.2' }}>Voice-Driven LinkedIn Draft & Content Engine</p>
-            </div>
-          </div>
+      @media (min-width: 1024px) {
+        .workspace-header,
+        .workspace-card {
+          width: 65% !important;
+          max-width: 1050px !important;
+          min-width: 720px !important;
+        }
+      }
+    `}</style>
 
-          {/* Header buttons only show when outside the landing page */}
-          {currentView !== 'landing' && (
-            <div className="header-actions" style={{ display: 'flex', gap: '8px' }}>
-              <button
-                onClick={() => setCurrentView('landing')}
-                style={{ backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Layout size={14} />
-                <span>Landing Page</span>
-              </button>
-              <button 
-                onClick={() => setShowAuthConfig(!showAuthConfig)}
-                style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '6px 12px', borderRadius: '6px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px' }}
-              >
-                <Key size={14} />
-                <span>API Credentials & Auth Info</span>
-              </button>
-            </div>
-          )}
-        </header>
+    {/* HEADER BAR */}
+    <header className="workspace-header" style={{ backgroundColor: '#ffffff', borderRadius: '14px', padding: '12px 18px', border: '1px solid #e2e8f0', display: 'flex', justifyContent: 'space-between', alignItems: 'center', width: '100%', boxSizing: 'border-box' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+        <div style={{ width: '36px', height: '36px', backgroundColor: '#0f172a', color: '#ffffff', borderRadius: '8px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Building2 size={20} />
+        </div>
+        <div style={{ minWidth: 0 }}>
+          <h1 style={{ margin: 0, fontSize: '16px', fontWeight: '800', color: '#0f172a', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            SunArc LinkedIn Draft Creator
+          </h1>
+          <p style={{ margin: 0, fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+            Voice-Driven LinkedIn Draft & Content Engine
+          </p>
+        </div>
+      </div>
 
+      {/* Header Actions: Side-by-side on Desktop (>=768px), Hidden on Mobile */}
+      {currentView !== 'landing' && (
+        <div className="desktop-header-actions">
+          <button
+            type="button"
+            onClick={() => setCurrentView('landing')}
+            style={{ backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+          >
+            <Layout size={14} />
+            <span>Landing Page</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowAuthConfig(!showAuthConfig)}
+            style={{ backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '7px 14px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '6px', whiteSpace: 'nowrap' }}
+          >
+            <Key size={14} />
+            <span>API Credentials & Auth</span>
+          </button>
+        </div>
+      )}
+    </header>
+      
+        {/* AUTH CONFIGURATION BANNER (Mobile Floating Bottom / Desktop In-Line) */}
         {showAuthConfig && (
-          <div style={{ backgroundColor: '#ffffff', padding: '16px', borderRadius: '12px', border: '1px solid #3b82f6', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box', maxWidth: '100%', minWidth: 0, overflowWrap: 'break-word' }}>
+          <div className="auth-config-banner" style={{ backgroundColor: '#ffffff', padding: '16px', borderRadius: '12px', border: '1.5px solid #2563eb', display: 'flex', flexDirection: 'column', gap: '8px', boxSizing: 'border-box' }}>
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', wordBreak: 'break-word' }}>API Credentials & Auth Info for Direct Publishing</h3>
-              <button onClick={() => setShowAuthConfig(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold' }}>✕</button>
+              <h3 style={{ margin: 0, fontSize: '14px', fontWeight: '700', color: '#1e3a8a', display: 'flex', alignItems: 'center', gap: '6px' }}>
+                <Key size={16} /> API Credentials & Auth Info for Direct Publishing
+              </h3>
+              <button type="button" onClick={() => setShowAuthConfig(false)} style={{ background: 'none', border: 'none', cursor: 'pointer', fontWeight: 'bold', fontSize: '16px', color: '#64748b' }}>✕</button>
             </div>
-            <p style={{ fontSize: '11px', color: '#475569', margin: 0, lineHeight: '1.4', wordBreak: 'break-word' }}>
+            <p style={{ fontSize: '12px', color: '#475569', margin: 0, lineHeight: '1.4' }}>
               Direct API publishing requires an authorized OAuth URN and Client Secret. 
-              <strong> Send a direct message (DM) to info@sunarctechnologies.com to enable direct background publishing.</strong>
+              <strong> Send a direct message (DM) to info@sunarctechnologies.com to enable background publishing.</strong>
             </p>
           </div>
         )}
 
-        {/* STATUS BANNER (Hidden on Landing Page) */}
-        {currentView !== 'landing' && statusMessage && (
-          <div className="status-banner" style={{ 
-            padding: '10px 14px', borderRadius: '10px', fontSize: '12px', fontWeight: '500', display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: '10px', boxSizing: 'border-box', maxWidth: '100%', minWidth: 0,
-            backgroundColor: statusMessage.type === 'error' ? '#fef2f2' : statusMessage.type === 'success' ? '#ecfdf5' : '#eff6ff',
-            color: statusMessage.type === 'error' ? '#991b1b' : statusMessage.type === 'success' ? '#065f46' : '#1e40af',
-            border: `1px solid ${statusMessage.type === 'error' ? '#fecaca' : statusMessage.type === 'success' ? '#a7f3d0' : '#bfdbfe'}`
-          }}>
-            <span className="status-banner-text" style={{ wordBreak: 'break-word', flex: '1 1 auto', minWidth: 0 }}>{statusMessage.text}</span>
-            <button className="status-banner-close" onClick={() => setStatusMessage(null)} style={{ border: 'none', background: 'none', cursor: 'pointer', fontWeight: 'bold', padding: '2px 4px', flexShrink: 0 }}>✕</button>
-          </div>
-        )}
+      {/* LANDING PAGE OR WORKSPACE VIEW */}
+      {currentView === 'landing' ? (
+        <div className="landing-content-wrapper" style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
+          <style>{`
+            .landing-content-wrapper {
+              width: 100% !important;
+              margin: 0 auto !important;
+              box-sizing: border-box !important;
+            }
 
-        {/* LANDING PAGE VIEW */}
-        {currentView === 'landing' ? (
-          <div style={{ display: 'flex', flexDirection: 'column', gap: '16px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-            {/* HERO CARD CONTAINING FEATURES GRID & CTA */}
-            <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px 14px', border: '1px solid #e2e8f0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '14px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-              <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '4px 12px', borderRadius: '20px', fontSize: '11px', fontWeight: '700', maxWidth: '100%', overflowWrap: 'break-word' }}>
-                <Sparkles size={13} style={{ flexShrink: 0 }} /> <span>On-Device & Cloud-Powered LinkedIn Content Engine</span>
-              </div>
-              
-              <h2 style={{ fontSize: '22px', fontWeight: '800', color: '#0f172a', margin: 0, maxWidth: '700px', lineHeight: '1.2', wordBreak: 'break-word' }}>
-                Transform Meeting Notes & Audio into High-Impact LinkedIn Updates
-              </h2>
-              
-              <p style={{ fontSize: '12px', color: '#475569', margin: 0, maxWidth: '600px', lineHeight: '1.5', wordBreak: 'break-word' }}>
-                Dictate ideas on the go or paste raw meeting observations. Generate formatted, professional LinkedIn updates instantly using Local Browser AI or top Cloud LLMs.
-              </p>
+            @media (min-width: 1024px) {
+              .landing-content-wrapper {
+                width: 65% !important;
+                max-width: 1050px !important;
+                min-width: 720px !important;
+              }
+            }
 
-              {/* FEATURES GRID (Fits 3 in 1 row on Mobile) */}
-              <div style={{ 
-                display: 'grid', 
-                gridTemplateColumns: 'repeat(3, 1fr)', 
-                gap: '6px', 
-                width: '100%', 
-                marginTop: '4px',
-                textAlign: 'left',
-                boxSizing: 'border-box',
-                minWidth: 0
-              }}>
-                {/* Feature 1 */}
-                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
-                  <div style={{ width: '24px', height: '24px', backgroundColor: '#f0fdf4', color: '#166534', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Mic size={14} />
-                  </div>
-                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>Voice Dictation</h3>
-                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
-                    Speak points naturally into context.
-                  </p>
+            .hero-title { font-size: 20px; }
+            .hero-desc { font-size: 12px; }
+            .feature-grid { grid-template-columns: repeat(3, 1fr); gap: 6px; }
+            .feature-card { padding: 8px 6px; }
+            .feature-icon { width: 24px; height: 24px; }
+            .feature-title { font-size: 10px; }
+            .feature-desc { font-size: 9px; line-height: 1.2; }
+
+            @media (min-width: 768px) {
+              .hero-title { font-size: 32px !important; }
+              .hero-desc { font-size: 15px !important; }
+              .feature-grid { gap: 16px !important; margin-top: 16px !important; }
+              .feature-card { padding: 16px 14px !important; border-radius: 12px !important; }
+              .feature-icon { width: 36px !important; height: 36px !important; border-radius: 8px !important; }
+              .feature-title { font-size: 14px !important; margin-top: 4px !important; }
+              .feature-desc { font-size: 12px !important; line-height: 1.4 !important; }
+            }
+          `}</style>
+          <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '32px 20px', border: '1px solid #e2e8f0', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', gap: '16px' }}>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '6px', backgroundColor: '#eff6ff', color: '#1d4ed8', padding: '6px 14px', borderRadius: '20px', fontSize: '12px', fontWeight: '700' }}>
+              <Sparkles size={14} /> <span>On-Device & Cloud-Powered LinkedIn Content Engine</span>
+            </div>
+            <h2 style={{ fontSize: '28px', fontWeight: '800', color: '#0f172a', margin: 0, maxWidth: '750px', lineHeight: '1.2' }}>
+              Dictate, Paste, and Draft LinkedIn Posts for Any Enterprise Scenario
+            </h2>
+            <p style={{ fontSize: '14px', color: '#475569', margin: 0, maxWidth: '650px', lineHeight: '1.5' }}>
+              Turn voice or text notes into polished LinkedIn drafts in seconds with Gemini Nano local AI or cloud models.
+            </p>
+            
+            {/* FEATURES GRID */}
+            <div className="feature-grid" style={{ display: 'grid', width: '100%', textAlign: 'left', boxSizing: 'border-box' }}>
+              <div className="feature-card" style={{ backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="feature-icon" style={{ backgroundColor: '#f0fdf4', color: '#166534', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Mic size={16} />
                 </div>
-
-                {/* Feature 2 */}
-                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
-                  <div style={{ width: '24px', height: '24px', backgroundColor: '#eff6ff', color: '#1d4ed8', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <ShieldCheck size={14} />
-                  </div>
-                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>On-Device AI</h3>
-                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
-                    Generate drafts locally with zero token cost.
-                  </p>
-                </div>
-
-                {/* Feature 3 */}
-                <div style={{ backgroundColor: '#f8fafc', padding: '8px 6px', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '3px', minWidth: 0, overflowWrap: 'break-word' }}>
-                  <div style={{ width: '24px', height: '24px', backgroundColor: '#fffbeb', color: '#b45309', borderRadius: '6px', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-                    <Zap size={14} />
-                  </div>
-                  <h3 style={{ margin: 0, fontSize: '10px', fontWeight: '700', color: '#0f172a', lineHeight: '1.1', wordBreak: 'break-word' }}>Smart Format</h3>
-                  <p style={{ margin: 0, fontSize: '9px', color: '#64748b', lineHeight: '1.2', wordBreak: 'break-word' }}>
-                    Tailored situations with native bolding.
-                  </p>
-                </div>
+                <h3 className="feature-title" style={{ margin: 0, fontWeight: '700', color: '#0f172a' }}>Voice Dictation</h3>
+                <p className="feature-desc" style={{ margin: 0, color: '#64748b' }}>
+                  Speak notes naturally on desktop or mobile with automatic transcription and context capturing.
+                </p>
               </div>
 
-              {/* LAUNCH BUTTON AT THE BOTTOM */}
-              <div style={{ display: 'flex', justifyContent: 'center', marginTop: '8px', width: '100%' }}>
-                <button
-                  onClick={() => setCurrentView('workspace')}
-                  style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxShadow: '0 4px 12px rgba(0, 102, 194, 0.25)', width: '100%', maxWidth: '320px' }}
-                >
-                  <span>Launch Draft Creator</span>
-                  <ArrowRight size={16} />
-                </button>
+              <div className="feature-card" style={{ backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="feature-icon" style={{ backgroundColor: '#eff6ff', color: '#1d4ed8', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <ShieldCheck size={16} />
+                </div>
+                <h3 className="feature-title" style={{ margin: 0, fontWeight: '700', color: '#0f172a' }}>On-Device AI</h3>
+                <p className="feature-desc" style={{ margin: 0, color: '#64748b' }}>
+                  Generate drafts completely offline in Chrome with Gemini Nano with zero API cost and total privacy.
+                </p>
+              </div>
+
+              <div className="feature-card" style={{ backgroundColor: '#f8fafc', borderRadius: '10px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '4px' }}>
+                <div className="feature-icon" style={{ backgroundColor: '#fffbeb', color: '#b45309', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+                  <Zap size={16} />
+                </div>
+                <h3 className="feature-title" style={{ margin: 0, fontWeight: '700', color: '#0f172a' }}>Smart Formatting</h3>
+                <p className="feature-desc" style={{ margin: 0, color: '#64748b' }}>
+                  Auto-formats text with native LinkedIn unicode bolding, takeaway bullets, and visual hooks.
+                </p>
               </div>
             </div>
+          
+            <button
+              onClick={() => setCurrentView('workspace')}
+              style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px 24px', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '8px', marginTop: '12px' }}
+            >
+              <span>Launch Workspace Draft Creator</span>
+              <ArrowRight size={16} />
+            </button>
           </div>
-        ) : (
-          /* WORKSPACE VIEW */
-          <div className="workspace-grid">
-            
-            <div className="workspace-column">
-              
-              <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
-                
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
-                  <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
-                </div>
+        </div>
+      ) : (
+        /* MAIN 4-TAB WORKSPACE BODY */
+        
+        <main className="max-w-5xl mx-auto p-4 md:p-6 w-full box-border">
+          {/* RESPONSIVE LAYOUT & HORIZONTAL SCROLLING TABS CSS */}
+<style>{`
+  .workspace-wrapper {
+    width: 100%;
+    margin: 0 auto;
+    padding: 16px;
+    box-sizing: border-box;
+  }
 
-                <div className="context-selector" style={{ width: '100%', minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    What are you posting about?
-                  </label>
-                  <select
-                    value={meetingContext}
-                    onChange={(e) => setMeetingContext(e.target.value)}
-                    style={{ width: '100%', maxWidth: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '13px', boxSizing: 'border-box' }}
-                    aria-label="Post situation"
-                  >
-                    {MEETING_CONTEXTS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                  </select>
-                  <div style={{ marginTop: '5px', fontSize: '10px', color: '#64748b', wordBreak: 'break-word' }}>
-                    {MEETING_CONTEXTS.find((item) => item.id === meetingContext)?.hint}
-                  </div>
-                </div>
+  @media (min-width: 1024px) {
+    .workspace-wrapper {
+      width: 65% !important;
+      max-width: 1050px;
+      min-width: 720px;
+    }
+  }
 
-                <div style={{ width: '100%', minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
-                    Speak or type your context
-                  </label>
+  /* Single-line horizontal scroll for Mobile, Grid for Desktop */
+  .tabs-nav-container {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    white-space: nowrap;
+    -webkit-overflow-scrolling: touch;
+    margin-bottom: 20px;
+    background-color: #f1f5f9;
+    padding: 8px;
+    border-radius: 16px;
+    border: 1px solid #e2e8f0;
+    width: 100%;
+    box-sizing: border-box;
+    /* Hide scrollbars across browsers */
+    -ms-overflow-style: none;
+    scrollbar-width: none;
+  }
+
+  .tabs-nav-container::-webkit-scrollbar {
+    display: none;
+  }
+
+  /* Fixed width on mobile for smooth horizontal scroll */
+  .tab-item-btn {
+    flex: 0 0 auto;
+    width: 155px;
+  }
+
+  @media (min-width: 768px) {
+    .tabs-nav-container {
+      display: grid !important;
+      grid-template-columns: repeat(4, 1fr) !important;
+      gap: 10px;
+      overflow-x: visible !important;
+    }
+    .tab-item-btn {
+      width: 100% !important;
+    }
+  }
+  /* Hide scroll indicator buttons on tablet/desktop (>=768px) */
+  @media (min-width: 768px) {
+          .tab-scroll-arrow {
+            display: none !important;
+          }
+        }
+`}</style>
+
+<div className="workspace-wrapper">
+  {/* WRAPPER WITH RELATIVE POSITIONING FOR ARROW OVERLAYS */}
+  <div style={{ position: 'relative', width: '100%' }}>
+
+    {/* LEFT ARROW INDICATOR (MOBILE ONLY) */}
+    {canScrollLeft && (
+      <button
+        type="button"
+        onClick={() => scrollTabs('left')}
+        className="tab-scroll-arrow"
+        aria-label="Scroll Left"
+        style={{
+          position: 'absolute',
+          left: '4px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 10,
+          backgroundColor: '#ffffff',
+          color: '#334155',
+          border: '1px solid #cbd5e1',
+          borderRadius: '50%',
+          width: '28px',
+          height: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+          cursor: 'pointer'
+        }}
+      >
+        <ChevronLeft size={18} />
+      </button>
+    )}
+
+    {/* RIGHT ARROW INDICATOR (MOBILE ONLY) */}
+    {canScrollRight && (
+      <button
+        type="button"
+        onClick={() => scrollTabs('right')}
+        className="tab-scroll-arrow"
+        aria-label="Scroll Right"
+        style={{
+          position: 'absolute',
+          right: '4px',
+          top: '50%',
+          transform: 'translateY(-50%)',
+          zIndex: 10,
+          backgroundColor: '#ffffff',
+          color: '#334155',
+          border: '1px solid #cbd5e1',
+          borderRadius: '50%',
+          width: '28px',
+          height: '28px',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          boxShadow: '0 2px 6px rgba(0,0,0,0.15)',
+          cursor: 'pointer'
+        }}
+      >
+        <ChevronRight size={18} />
+      </button>
+    )}
+    </div>
+  {/* 4-TAB SEGMENTED NAVIGATION: 1-LINE HORIZONTAL SCROLL ON MOBILE, 4-COL GRID ON PC */}
+  <div className="tabs-nav-container" ref={tabsNavRef}>
+    
+    {/* Tab 1 */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('inputs')}
+        className="tab-item-btn"
+        style={{
+          padding: '10px 12px',
+          borderRadius: '12px',
+          border: activeTab === 'inputs' ? '2px solid #2563eb' : '1px solid #cbd5e1',
+          backgroundColor: activeTab === 'inputs' ? '#2563eb' : '#ffffff',
+          color: activeTab === 'inputs' ? '#ffffff' : '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          cursor: 'pointer',
+          textAlign: 'left',
+          boxShadow: activeTab === 'inputs' ? '0 4px 12px rgba(37, 99, 235, 0.25)' : 'none',
+          transition: 'all 0.15s ease',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: activeTab === 'inputs' ? '#ffffff' : '#dbeafe', color: '#2563eb', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <FileText size={16} />
+        </div>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', lineHeight: '1.2', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>1. User Inputs</div>
+          <div style={{ fontSize: '10px', opacity: activeTab === 'inputs' ? 0.9 : 0.6, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>Context & Voice</div>
+        </div>
+      </button>
+
+      {/* Tab 2 */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('ai')}
+        className="tab-item-btn"
+        style={{
+          padding: '10px 12px',
+          borderRadius: '12px',
+          border: activeTab === 'ai' ? '2px solid #9333ea' : '1px solid #cbd5e1',
+          backgroundColor: activeTab === 'ai' ? '#9333ea' : '#ffffff',
+          color: activeTab === 'ai' ? '#ffffff' : '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          cursor: 'pointer',
+          textAlign: 'left',
+          boxShadow: activeTab === 'ai' ? '0 4px 12px rgba(147, 51, 234, 0.25)' : 'none',
+          transition: 'all 0.15s ease',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: activeTab === 'ai' ? '#ffffff' : '#f3e8ff', color: '#9333ea', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Bot size={16} />
+        </div>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', lineHeight: '1.2', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>2. AI Controls</div>
+          <div style={{ fontSize: '10px', opacity: activeTab === 'ai' ? 0.9 : 0.6, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>Models & Settings</div>
+        </div>
+      </button>
+
+      {/* Tab 3 */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('editor')}
+        className="tab-item-btn"
+        style={{
+          padding: '10px 12px',
+          borderRadius: '12px',
+          border: activeTab === 'editor' ? '2px solid #059669' : '1px solid #cbd5e1',
+          backgroundColor: activeTab === 'editor' ? '#059669' : '#ffffff',
+          color: activeTab === 'editor' ? '#ffffff' : '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          cursor: 'pointer',
+          textAlign: 'left',
+          boxShadow: activeTab === 'editor' ? '0 4px 12px rgba(5, 150, 105, 0.25)' : 'none',
+          transition: 'all 0.15s ease',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: activeTab === 'editor' ? '#ffffff' : '#d1fae5', color: '#059669', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Edit3 size={16} />
+        </div>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', lineHeight: '1.2', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>3. Post Editor</div>
+          <div style={{ fontSize: '10px', opacity: activeTab === 'editor' ? 0.9 : 0.6, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>Rich Text & Canvas</div>
+        </div>
+      </button>
+
+      {/* Tab 4 */}
+      <button
+        type="button"
+        onClick={() => setActiveTab('preview')}
+        className="tab-item-btn"
+        style={{
+          padding: '10px 12px',
+          borderRadius: '12px',
+          border: activeTab === 'preview' ? '2px solid #0284c7' : '1px solid #cbd5e1',
+          backgroundColor: activeTab === 'preview' ? '#0284c7' : '#ffffff',
+          color: activeTab === 'preview' ? '#ffffff' : '#334155',
+          display: 'flex',
+          alignItems: 'center',
+          gap: '8px',
+          cursor: 'pointer',
+          textAlign: 'left',
+          boxShadow: activeTab === 'preview' ? '0 4px 12px rgba(2, 132, 199, 0.25)' : 'none',
+          transition: 'all 0.15s ease',
+          boxSizing: 'border-box'
+        }}
+      >
+        <div style={{ padding: '6px', borderRadius: '8px', backgroundColor: activeTab === 'preview' ? '#ffffff' : '#e0f2fe', color: '#0284c7', display: 'flex', alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
+          <Eye size={16} />
+        </div>
+        <div style={{ minWidth: 0, overflow: 'hidden' }}>
+          <div style={{ fontSize: '12px', fontWeight: '800', lineHeight: '1.2', whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>4. Live Preview</div>
+          <div style={{ fontSize: '10px', opacity: activeTab === 'preview' ? 0.9 : 0.6, whiteSpace: 'nowrap', textOverflow: 'ellipsis', overflow: 'hidden' }}>Actions & Feed</div>
+        </div>
+      </button>
+
+
+  </div>
+
+</div>
+          {/* TAB 1: USER INPUTS FOR FIRST DRAFT */}
+          {/* TAB 1 CONTENT BODY */}
+          {activeTab === 'inputs' && (
+            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px', width: '100%', boxSizing: 'border-box' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '12px' }}>
+                <span style={{ fontWeight: '700', fontSize: '15px', color: '#0f172a' }}>1. Fast Draft Generator for LinkedIn Post</span>
+              </div>
+      
+              {/* MEETING CONTEXT SELECTOR */}
+              <div style={{ width: '100%', minWidth: 0 }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  What are you posting about?
+                </label>
+                <select
+                  value={meetingContext}
+                  onChange={(e) => setMeetingContext(e.target.value)}
+                  style={{ width: '100%', padding: '10px 12px', borderRadius: '8px', border: '1px solid #cbd5e1', backgroundColor: '#fff', fontSize: '13px' }}
+                >
+                  {MEETING_CONTEXTS.map((item) => (
+                    <option key={item.id} value={item.id}>{item.label}</option>
+                  ))}
+                </select>
+                <div style={{ marginTop: '5px', fontSize: '11px', color: '#64748b' }}>
+                  {MEETING_CONTEXTS.find((item) => item.id === meetingContext)?.hint}
+                </div>
+              </div>
+
+              {/* VOICE DICTATION */}
+              <div style={{ width: '100%', minWidth: 0 }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '8px' }}>
+                  Speak or type your context
+                </label>
+                <button
+                  type="button"
+                  onClick={toggleListening}
+                  style={{
+                    width: '100%', padding: '14px', borderRadius: '12px',
+                    border: isListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
+                    backgroundColor: isListening ? '#fef2f2' : '#f8fafc',
+                    color: isListening ? '#dc2626' : '#0f172a',
+                    fontWeight: '700', fontSize: '13px', cursor: 'pointer',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px'
+                  }}
+                >
+                  {isListening ? <MicOff size={18} /> : <Mic size={18} style={{ color: '#0066c2' }} />}
+                  <span>{isListening ? 'Listening... Click to Stop' : '🎙️ Tap to Dictate Notes / Context'}</span>
+                </button>
+              </div>
+
+              {/* TEXT PROMPT INPUT */}
+              <div style={{ width: '100%', minWidth: 0 }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Add details / bullet points
+                </label>
+                <textarea
+                  value={prompt}
+                  onChange={(e) => setPrompt(e.target.value)}
+                  placeholder="What happened, what did you learn, who is it for, and what should people take away?"
+                  style={{ width: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', lineHeight: '1.5', resize: 'vertical' }}
+                  rows={4}
+                />
+              </div>
+
+              {/* TONE SELECTION */}
+              <div style={{ backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0' }}>
+                <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
+                  Select Post Tone
+                </label>
+                <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+                  {tonesList.map((tone) => (
+                    <button
+                      key={tone}
+                      type="button"
+                      onClick={() => setSelectedTone(tone)}
+                      style={{
+                        padding: '6px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
+                        backgroundColor: selectedTone === tone ? '#0f172a' : '#ffffff',
+                        color: selectedTone === tone ? '#ffffff' : '#475569',
+                        boxShadow: selectedTone === tone ? 'none' : '0 1px 2px rgba(0,0,0,0.05)'
+                      }}
+                    >
+                      {tone}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* ACTION BUTTON: SWITCH TO TAB 2 (AI CONTROLS) */}
+              <button
+                type="button"
+                onClick={() => {
+                  const contextText = prompt.trim();
+
+                  if (!contextText) {
+                    setStatusMessage({ 
+                      type: 'error', 
+                      text: 'Please enter a topic or record voice input before generating.' 
+                    });
+                    return;
+                  }
+
+                  // Clear error message if validation passes
+                  if (statusMessage?.type === 'error') {
+                    setStatusMessage(null);
+                  }
+
+                  setActiveTab('ai');
+                }}
+                style={{
+                  backgroundColor: '#2563eb',
+                  color: '#ffffff',
+                  border: 'none',
+                  padding: '14px 20px',
+                  borderRadius: '10px',
+                  fontSize: '14px',
+                  fontWeight: '700',
+                  cursor: 'pointer',
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  gap: '8px',
+                  marginTop: '6px',
+                  width: '100%'
+                }}
+              >
+                <span>Proceed to AI Controls & Generation</span>
+                <ArrowRight size={16} />
+              </button>
+            </div>
+          )}
+
+          {/* TAB 2: AI CONTROLS */}
+          {/* TAB 2: AI CONTROLS */}
+          {activeTab === 'ai' && (
+            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '16px', borderRadius: '12px' }}>
+                <label style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
+                  Select AI Processing Engine
+                </label>
+
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(120px, 1fr))', gap: '8px' }}>
                   <button
                     type="button"
-                    onClick={toggleVoiceInput}
+                    onClick={() => setAiMode('auto')}
                     style={{
-                      width: '100%', maxWidth: '100%', padding: '14px', borderRadius: '12px',
-                      border: isListening ? '2px solid #ef4444' : '1px solid #cbd5e1',
-                      backgroundColor: isListening ? '#fef2f2' : '#f8fafc',
-                      color: isListening ? '#dc2626' : '#0f172a',
-                      fontWeight: '700', fontSize: '13px', cursor: 'pointer',
-                      display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '10px',
-                      boxSizing: 'border-box'
+                      padding: '10px', borderRadius: '8px', border: `2px solid ${aiMode === 'auto' ? '#2563eb' : '#93c5fd'}`,
+                      backgroundColor: aiMode === 'auto' ? '#ffffff' : '#f0f9ff', textAlign: 'left', cursor: 'pointer'
                     }}
                   >
-                    {isListening ? <MicOff size={18} /> : <Mic size={18} style={{ color: '#0066c2' }} />}
-                    <span>{isListening ? 'Listening... Click to Stop Dictation' : '🎙️ Tap to Dictate Notes / Context'}</span>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e3a8a', display: 'block' }}>⚡ Auto (Local)</span>
+                    <span style={{ fontSize: '10px', color: '#475569' }}>Chrome Gemini Nano</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => setAiMode('cloud')}
+                    style={{
+                      padding: '10px', borderRadius: '8px', border: `2px solid ${aiMode === 'cloud' ? '#2563eb' : '#93c5fd'}`,
+                      backgroundColor: aiMode === 'cloud' ? '#ffffff' : '#f0f9ff', textAlign: 'left', cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e3a8a', display: 'block' }}>☁️ Cloud AI</span>
+                    <span style={{ fontSize: '10px', color: '#475569' }}>OpenAI / Claude / Gemini</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={!demoAvailable}
+                    onClick={() => setAiMode('demo')}
+                    style={{
+                      padding: '10px', borderRadius: '8px', border: `2px solid ${aiMode === 'demo' ? '#2563eb' : '#93c5fd'}`,
+                      backgroundColor: aiMode === 'demo' ? '#ffffff' : '#f0f9ff', textAlign: 'left', cursor: 'pointer'
+                    }}
+                  >
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1e3a8a', display: 'block' }}>🧪 Demo Server</span>
+                    <span style={{ fontSize: '10px', color: '#475569' }}>Server Key Quota</span>
                   </button>
                 </div>
 
-                <div style={{ width: '100%', minWidth: 0 }}>
-                  <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                    Add more details if useful
-                  </label>
-                  <textarea 
-                    value={prompt}
-                    onChange={(e) => setPrompt(e.target.value)}
-                    placeholder="What happened, what did you learn, who is it for, and what should people take away?"
-                    style={{ width: '100%', maxWidth: '100%', padding: '12px', borderRadius: '8px', border: '1px solid #cbd5e1', fontSize: '13px', boxSizing: 'border-box', lineHeight: '1.5', resize: 'vertical' }}
-                    rows={3}
-                  />
-                </div>
-
-                <div className="options-panel" style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#f8fafc', padding: '14px', borderRadius: '12px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-                  <div>
-                    <label style={{ display: 'block', fontSize: '11px', fontWeight: '700', color: '#64748b', textTransform: 'uppercase', marginBottom: '6px' }}>
-                      Tone
-                    </label>
-                    <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
-                      {tonesList.map((tone) => (
-                        <button
-                          key={tone}
-                          type="button"
-                          onClick={() => setSelectedTone(tone)}
-                          style={{
-                            padding: '5px 12px', borderRadius: '16px', fontSize: '11px', fontWeight: '600', border: 'none', cursor: 'pointer',
-                            backgroundColor: selectedTone === tone ? '#0f172a' : '#ffffff',
-                            color: selectedTone === tone ? '#ffffff' : '#475569'
-                          }}
+                {/* CLOUD API SETTINGS */}
+                {aiMode === 'cloud' && (
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', backgroundColor: '#ffffff', padding: '12px', borderRadius: '8px', border: '1px solid #93c5fd' }}>
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', marginBottom: '4px' }}>Provider</label>
+                        <select
+                          value={cloudProvider}
+                          onChange={(e) => handleProviderChange(e.target.value)}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }}
                         >
-                          {tone}
+                          {CLOUD_PROVIDERS.map((p) => (
+                            <option key={p.id} value={p.id}>{p.name}</option>
+                          ))}
+                          <option value="custom">Custom Provider</option>
+                        </select>
+                      </div>
+
+                      <div>
+                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', marginBottom: '4px' }}>Model</label>
+                        <select
+                          value={cloudModel}
+                          onChange={(e) => setCloudModel(e.target.value)}
+                          style={{ width: '100%', padding: '8px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }}
+                        >
+                          {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
+                            <option key={m} value={m}>{m}</option>
+                          ))}
+                        </select>
+                      </div>
+                    </div>
+
+                    <div>
+                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', marginBottom: '4px' }}>API Key (In-Memory Only)</label>
+                      <div style={{ position: 'relative', display: 'flex', alignItems: 'center' }}>
+                        <input
+                          type={showApiKey ? 'text' : 'password'}
+                          value={cloudApiKey}
+                          onChange={(e) => setCloudApiKey(e.target.value)}
+                          placeholder="sk-..."
+                          style={{ width: '100%', padding: '8px 36px 8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px' }}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowApiKey(!showApiKey)}
+                          style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer' }}
+                        >
+                          {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                         </button>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-
-                {/* SIMPLE AI CONTROL */}
-                <div style={{ display: 'flex', flexDirection: 'column', gap: '12px', backgroundColor: '#eff6ff', border: '1px solid #bfdbfe', padding: '14px', borderRadius: '12px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-                  {/* Row 1: AI mode */}
-                  <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: '10px',
-                    flexWrap: 'wrap',
-                    width: '100%',
-                    minWidth: 0
-                  }}>
-                    <span style={{ fontSize: '12px', fontWeight: '800', color: '#1e3a8a' }}>
-                      How should AI help?
-                    </span>
-                    <select
-                      value={aiMode}
-                      onChange={(e) => setAiMode(e.target.value as 'auto' | 'cloud' | 'demo')}
-                      style={{
-                        flex: '1 1 200px',
-                        width: '100%',
-                        maxWidth: '100%',
-                        minWidth: 0,
-                        padding: '7px 9px',
-                        borderRadius: '6px',
-                        border: '1px solid #93c5fd',
-                        backgroundColor: '#ffffff',
-                        color: '#1e3a8a',
-                        fontSize: '11px',
-                        fontWeight: '700',
-                        boxSizing: 'border-box'
-                      }}
-                      aria-label="AI generation mode"
-                    >
-                      <option value="auto">Automatic — use the best available AI</option>
-                      <option value="demo" disabled={!demoAvailable}>Demo Mode — Server AI{demoAvailable ? "" : " (not configured)"}</option>
-                      <option value="cloud">Cloud AI — My API Key</option>
-                    </select>
-                  </div>
-
-                  {aiMode === 'cloud' && (
-                  <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', width: '100%', minWidth: 0 }}>
-                  {/* Cloud provider + model */}
-                  <div style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))',
-                    gap: '10px',
-                    width: '100%',
-                    minWidth: 0
-                  }}>
-                    <div style={{ minWidth: 0 }}>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                        Cloud Provider
-                      </label>
-                      <select
-                        value={cloudProvider}
-                        onChange={(e) => handleProviderChange(e.target.value)}
-                        style={{
-                          width: '100%',
-                          maxWidth: '100%',
-                          minWidth: 0,
-                          padding: '8px',
-                          borderRadius: '6px',
-                          border: '1px solid #93c5fd',
-                          fontSize: '12px',
-                          backgroundColor: '#ffffff',
-                          boxSizing: 'border-box'
-                        }}
-                      >
-                        {CLOUD_PROVIDERS.map((p) => (
-                          <option key={p.id} value={p.id}>{p.name}</option>
-                        ))}
-                        <option value="custom">Custom Provider</option>
-                      </select>
-                    </div>
-
-                    <div style={{ minWidth: 0 }}>
-                      <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                        Target Model
-                      </label>
-                      <select
-                        value={cloudModel}
-                        onChange={(e) => setCloudModel(e.target.value)}
-                        style={{
-                          width: '100%',
-                          maxWidth: '100%',
-                          minWidth: 0,
-                          padding: '8px',
-                          borderRadius: '6px',
-                          border: '1px solid #93c5fd',
-                          fontSize: '12px',
-                          backgroundColor: '#ffffff',
-                          boxSizing: 'border-box'
-                        }}
-                      >
-                        {CLOUD_PROVIDERS.find((p) => p.id === cloudProvider)?.models.map((m) => (
-                          <option key={m} value={m}>{m}</option>
-                        ))}
-                        {cloudProvider === 'custom' && <option value={customModel}>{customModel || 'Enter custom model below'}</option>}
-                      </select>
-                    </div>
-                  </div>
-
-                  {cloudProvider === 'custom' && (
-                    <div className="cloud-custom-grid">
-                      <div style={{ minWidth: 0 }}>
-                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Provider ID / Name</label>
-                        <input value={customProvider} onChange={(e) => setCustomProvider(e.target.value)} placeholder="e.g. groq, mistral, deepseek" style={{ width: '100%', maxWidth: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', boxSizing: 'border-box' }} />
-                      </div>
-                      <div style={{ minWidth: 0 }}>
-                        <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>Model ID</label>
-                        <input value={customModel} onChange={(e) => { setCustomModel(e.target.value); setCloudModel(e.target.value); }} placeholder="e.g. llama-3.3-70b-versatile" style={{ width: '100%', maxWidth: '100%', padding: '8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', boxSizing: 'border-box' }} />
                       </div>
                     </div>
-                  )}
-
-                  {/* USER API KEY */}
-                  <div style={{ width: '100%', minWidth: 0 }}>
-                    <label style={{ display: 'block', fontSize: '10px', fontWeight: '700', color: '#1e3a8a', textTransform: 'uppercase', marginBottom: '4px' }}>
-                      Optional Custom API Key (In-Memory Only)
-                    </label>
-                    <div style={{ position: 'relative', display: 'flex', alignItems: 'center', width: '100%' }}>
-                      <input
-                        type={showApiKey ? 'text' : 'password'}
-                        value={cloudApiKey}
-                        onChange={(e) => setCloudApiKey(e.target.value)}
-                        placeholder={`Enter ${CLOUD_PROVIDERS.find(p=>p.id===cloudProvider)?.name} API Key (e.g. sk-...)`}
-                        style={{ width: '100%', maxWidth: '100%', padding: '8px 36px 8px 10px', borderRadius: '6px', border: '1px solid #93c5fd', fontSize: '12px', backgroundColor: '#ffffff', boxSizing: 'border-box' }}
-                        autoComplete="off"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowApiKey(!showApiKey)}
-                        style={{ position: 'absolute', right: '8px', border: 'none', background: 'none', cursor: 'pointer', color: '#64748b' }}
-                        title={showApiKey ? "Hide Key" : "Show Key"}
-                      >
-                        {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
-                      </button>
-                    </div>
-                    <span style={{ fontSize: '10px', color: '#60a5fa', marginTop: '2px', display: 'block', wordBreak: 'break-word' }}>
-                      Your key is sent only for this generation and is not stored by the UI.
-                    </span>
                   </div>
+                )}
+
+                {/* DEMO MODE PANEL */}
+                {aiMode === 'demo' && (
+                  <div style={{ padding: '9px 10px', borderRadius: '8px', background: '#dbeafe', color: '#1e3a8a', fontSize: '11px', lineHeight: 1.45, wordBreak: 'break-word' }}>
+                    <strong>Demo Mode Active:</strong> Uses the application's server-side AI key. Availability depends on configured provider quota.
+                    {demoProviders.length > 0 && <span> Server providers: {demoProviders.join(', ')}.</span>}
                   </div>
-                  )}
+                )}
 
-                  {aiMode === 'demo' && (
-                    <div style={{ padding: '9px 10px', borderRadius: '8px', background: '#dbeafe', color: '#1e3a8a', fontSize: '11px', lineHeight: 1.45, wordBreak: 'break-word' }}>
-                      <strong>Demo Mode:</strong> uses the application's server-side AI key. Availability depends on the configured provider quota. Your API key is not required.
-                      {demoProviders.length > 0 && <span> Server providers: {demoProviders.join(', ')}.</span>}
-                    </div>
-                  )}
-                </div>
-
-                {/* BROWSER AI STATUS / SETUP */}
+                {/* BROWSER LOCAL AI STATUS PANEL */}
                 {aiMode === 'auto' && (
                   <div style={{
                     backgroundColor: browserAiStatus === 'ready' ? '#f0fdf4' : '#fffbeb',
                     border: `1px solid ${browserAiStatus === 'ready' ? '#bbf7d0' : '#fde68a'}`,
                     borderRadius: '10px',
                     padding: '10px 12px',
-                    marginTop: '2px',
                     width: '100%',
-                    boxSizing: 'border-box',
-                    minWidth: 0
+                    boxSizing: 'border-box'
                   }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                       <div style={{ display: 'flex', alignItems: 'center', gap: '7px', minWidth: 0, flex: '1 1 auto' }}>
@@ -2066,14 +2072,10 @@ export default function LinkedInWorkspace() {
                               padding: '5px 8px',
                               fontSize: '10px',
                               fontWeight: '700',
-                              cursor: browserAiStatus === 'checking' || browserAiStatus === 'downloading' ? 'default' : 'pointer'
+                              cursor: 'pointer'
                             }}
                           >
-                            {browserAiStatus === 'downloading'
-                              ? 'Downloading...'
-                              : browserAiStatus === 'unsupported'
-                              ? 'Check Browser AI'
-                              : 'Check / Set Up'}
+                            {browserAiStatus === 'downloading' ? 'Downloading...' : 'Check / Set Up'}
                           </button>
                         )}
                         <button
@@ -2094,24 +2096,6 @@ export default function LinkedInWorkspace() {
                       </div>
                     </div>
 
-                    {browserAiStatus === 'downloading' && (
-                      <div style={{ marginTop: '8px', width: '100%' }}>
-                        <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '9px', color: '#64748b', marginBottom: '4px' }}>
-                          <span>Local AI model download</span>
-                          <span>{browserAiDownloadProgress}%</span>
-                        </div>
-                        <div style={{ height: '6px', width: '100%', backgroundColor: '#e5e7eb', borderRadius: '999px', overflow: 'hidden' }}>
-                          <div style={{
-                            height: '100%',
-                            width: `${browserAiDownloadProgress}%`,
-                            backgroundColor: '#f59e0b',
-                            borderRadius: '999px',
-                            transition: 'width 300ms ease-out'
-                          }} />
-                        </div>
-                      </div>
-                    )}
-
                     {showBrowserAiHelp && (
                       <div style={{
                         marginTop: '9px',
@@ -2119,81 +2103,48 @@ export default function LinkedInWorkspace() {
                         borderTop: '1px solid #fde68a',
                         fontSize: '10px',
                         lineHeight: '1.5',
-                        color: '#475569',
-                        overflowWrap: 'break-word'
+                        color: '#475569'
                       }}>
-                        <strong style={{ color: '#334155' }}>Local AI is used when the device supports it.</strong>
+                        <strong style={{ color: '#334155' }}>Local AI is used when device supports it.</strong>
                         <div style={{ marginTop: '4px' }}>
-                          The app can use a browser/device-provided local AI capability when available. No separate AI extension is required by this app.
-                        </div>
-                        <div style={{ marginTop: '4px' }}>
-                          For the Prompt API, support depends on the browser version, operating system,
-                          device hardware, available storage, and the current local-AI rollout.
-                        </div>
-                        <div style={{ marginTop: '5px', fontWeight: '700', color: '#334155' }}>
-                          In Automatic mode, the app uses local AI when available and automatically falls back to Demo Mode Server AI when it is not.
-                        </div>
-                        <div style={{ marginTop: '5px' }}>
-                          For supported browsers, use their built-in AI diagnostics if available. This is optional and not required to use the app.
+                          Uses Chrome Gemini Nano on-device. In Automatic mode, falls back to Demo Server AI if unsupported.
                         </div>
                       </div>
                     )}
                   </div>
                 )}
+              </div>
 
-                {aiMode === 'cloud' && (
-                  <div style={{
-                    backgroundColor: '#eff6ff',
-                    border: '1px solid #bfdbfe',
-                    borderRadius: '10px',
-                    padding: '9px 12px',
-                    marginTop: '2px',
-                    fontSize: '10px',
-                    color: '#475569',
-                    wordBreak: 'break-word'
-                  }}>
-                    <strong style={{ color: '#1e3a8a' }}>Cloud AI only</strong>
-                    <span style={{ marginLeft: '6px' }}>
-                      Local AI will not be used for this generation.
+              {/* GENERATE ACTION BUTTON */}
+              <button
+                type="button"
+                onClick={generateMultiVariants}
+                disabled={isGenerating}
+                style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '10px', fontSize: '14px', fontWeight: '700', cursor: isGenerating ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%' }}
+              >
+                {isGenerating ? <RefreshCw size={16} className="animate-spin" /> : <Sparkles size={16} />}
+                <span>{isGenerating ? 'Drafting LinkedIn Post...' : 'Generate Post Draft'}</span>
+              </button>
+
+              {/* AI GENERATION PROGRESS */}
+              {generationProgress > 0 && (
+                <div style={{ backgroundColor: '#ffffff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '12px', width: '100%' }}>
+                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' }}>
+                    <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155' }}>
+                      {generationStage || 'Generating draft...'}
+                    </span>
+                    <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>
+                      {generationProgress}%
                     </span>
                   </div>
-                )}
-
-                <button 
-                  onClick={generateMultiVariants} 
-                  disabled={isGenerating}
-                  style={{ backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontSize: '13px', fontWeight: '700', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', width: '100%', boxSizing: 'border-box' }}
-                >
-                  <Sparkles size={16} />
-                  <span>{isGenerating ? 'Generating Draft...' : 'Generate Draft'}</span>
-                </button>
-
-                {/* AI GENERATION PROGRESS */}
-                {generationProgress > 0 && (
-                  <div style={{ backgroundColor: '#ffffff', border: '1px solid #dbeafe', borderRadius: '10px', padding: '12px', marginTop: '2px', width: '100%', boxSizing: 'border-box' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', marginBottom: '7px' }}>
-                      <span style={{ fontSize: '11px', fontWeight: '700', color: '#334155', wordBreak: 'break-word' }}>
-                        {generationStage || 'Generating draft...'}
-                      </span>
-                      <span style={{ fontSize: '11px', fontWeight: '800', color: '#1d4ed8' }}>
-                        {generationProgress}%
-                      </span>
-                    </div>
-                    <div
-                      role="progressbar"
-                      aria-valuenow={generationProgress}
-                      aria-valuemin={0}
-                      aria-valuemax={100}
-                      aria-label={generationStage || 'AI generation progress'}
-                      style={{ height: '8px', width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}
-                    >
-                      <div style={{ height: '100%', width: `${generationProgress}%`, backgroundColor: '#2563eb', borderRadius: '999px', transition: 'width 500ms ease-out' }} />
-                    </div>
+                  <div style={{ height: '8px', width: '100%', backgroundColor: '#e2e8f0', borderRadius: '999px', overflow: 'hidden' }}>
+                    <div style={{ height: '100%', width: `${generationProgress}%`, backgroundColor: '#2563eb', borderRadius: '999px', transition: 'width 500ms ease-out' }} />
                   </div>
-                )}
+                </div>
+              )}
 
-                {/* VARIANTS DISPLAY */}
-                {variants.length > 0 && (
+              {/* VARIANTS DISPLAY */}
+              {variants.length > 0 && (
                   <div style={{ display: 'flex', flexDirection: 'column', gap: '8px', paddingTop: '10px', borderTop: '1px solid #f1f5f9', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
                     <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: '8px', flexWrap: 'wrap' }}>
                       <span style={{ fontSize: '11px', fontWeight: '700', color: '#64748b' }}>GENERATED DRAFT:</span>
@@ -2262,76 +2213,123 @@ export default function LinkedInWorkspace() {
                   </div>
                 )}
               </div>
+             
+          )}
 
-              {/* CANVAS EDITOR */}
-              <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '20px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '14px' }}>
-                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', borderBottom: '1px solid #f1f5f9', paddingBottom: '10px', flexWrap: 'wrap', gap: '4px' }}>
-                  <span style={{ fontWeight: '700', fontSize: '14px', color: '#0f172a' }}>2. Post Canvas Editor</span>
-                  <span style={{ fontSize: '11px', color: plainText.length > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: plainText.length > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
-                    Characters: <strong>{plainText.length}</strong> / {LINKEDIN_MAX_CHARS} max
+          {/* TAB 3: POST CANVAS EDITOR */}
+          {activeTab === 'editor' && (
+            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* POST CANVAS EDITOR & TOOLBAR */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                  <span style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a' }}>Canvas Post Editor</span>
+                  <span style={{ fontSize: '11px', color: (editor?.getText().length || 0) > LINKEDIN_MAX_CHARS ? '#dc2626' : '#64748b', fontWeight: (editor?.getText().length || 0) > LINKEDIN_MAX_CHARS ? '700' : 'normal' }}>
+                    {editor?.getText().length || 0} / {LINKEDIN_MAX_CHARS}
                   </span>
                 </div>
 
+                {/* TIPTAP TOOLBAR */}
                 {editor && (
                   <div className="toolbar-wrap" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '8px', backgroundColor: '#f8fafc', padding: '8px 12px', borderRadius: '10px', border: '1px solid #e2e8f0', width: '100%', boxSizing: 'border-box' }}>
                     <div style={{ display: 'flex', alignItems: 'center', gap: '4px', flexWrap: 'wrap' }}>
                       <button
                         type="button"
                         onClick={() => editor.chain().focus().toggleBold().run()}
-                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('bold') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bold') ? '#eff6ff' : 'transparent', color: editor.isActive('bold') ? '#0066c2' : '#475569', cursor: 'pointer' }}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '6px',
+                          border: editor.isActive('bold') ? '1px solid #0066c2' : '1px solid transparent',
+                          backgroundColor: editor.isActive('bold') ? '#eff6ff' : 'transparent',
+                          color: editor.isActive('bold') ? '#0066c2' : '#475569',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Bold"
                       >
                         <Bold size={15} />
                       </button>
+
                       <button
                         type="button"
                         onClick={() => editor.chain().focus().toggleItalic().run()}
-                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('italic') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('italic') ? '#eff6ff' : 'transparent', color: editor.isActive('italic') ? '#0066c2' : '#475569', cursor: 'pointer' }}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '6px',
+                          border: editor.isActive('italic') ? '1px solid #0066c2' : '1px solid transparent',
+                          backgroundColor: editor.isActive('italic') ? '#eff6ff' : 'transparent',
+                          color: editor.isActive('italic') ? '#0066c2' : '#475569',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Italic"
                       >
                         <Italic size={15} />
                       </button>
+
                       <button
                         type="button"
-                        onClick={handleAddLink}
-                        style={{ width: '32px', height: '32px', borderRadius: '6px', border: editor.isActive('link') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('link') ? '#eff6ff' : 'transparent', color: editor.isActive('link') ? '#0066c2' : '#475569', cursor: 'pointer', display: 'inline-flex', alignItems: 'center', justifyContent: 'center' }}
+                        onClick={() => {
+                          const previousUrl = editor.getAttributes('link').href;
+                          const url = window.prompt('URL', previousUrl);
+                          if (url === null) return;
+                          if (url === '') {
+                            editor.chain().focus().extendMarkRange('link').unsetLink().run();
+                            return;
+                          }
+                          editor.chain().focus().extendMarkRange('link').setLink({ href: url }).run();
+                        }}
+                        style={{
+                          width: '32px',
+                          height: '32px',
+                          borderRadius: '6px',
+                          border: editor.isActive('link') ? '1px solid #0066c2' : '1px solid transparent',
+                          backgroundColor: editor.isActive('link') ? '#eff6ff' : 'transparent',
+                          color: editor.isActive('link') ? '#0066c2' : '#475569',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center'
+                        }}
+                        title="Link"
                       >
                         <LinkIcon size={15} />
                       </button>
+
                       <input type="file" ref={fileInputRef} onChange={handleImageUpload} accept="image/*" style={{ display: 'none' }} />
                       <button
                         type="button"
                         onClick={() => fileInputRef.current?.click()}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: '1px solid transparent', backgroundColor: '#eff6ff', color: '#0066c2', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
+                        style={{
+                          padding: '6px 10px',
+                          borderRadius: '6px',
+                          border: '1px solid #cbd5e1',
+                          backgroundColor: '#eff6ff',
+                          color: '#0066c2',
+                          fontSize: '11px',
+                          fontWeight: '700',
+                          cursor: 'pointer',
+                          display: 'flex',
+                          alignItems: 'center',
+                          gap: '4px'
+                        }}
                       >
-                        <ImageIcon size={15} />
-                        <span>Add Image</span>
-                      </button>
-
-                      <div style={{ width: '1px', height: '18px', backgroundColor: '#cbd5e1', margin: '0 4px' }} />
-
-                      <button
-                        type="button"
-                        onClick={() => editor.chain().focus().toggleBulletList().run()}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('bulletList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('bulletList') ? '#eff6ff' : 'transparent', color: editor.isActive('bulletList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                      >
-                        <List size={15} />
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => editor.chain().focus().toggleOrderedList().run()}
-                        style={{ display: 'inline-flex', alignItems: 'center', gap: '4px', padding: '0 8px', height: '32px', borderRadius: '6px', border: editor.isActive('orderedList') ? '1px solid #0066c2' : '1px solid transparent', backgroundColor: editor.isActive('orderedList') ? '#eff6ff' : 'transparent', color: editor.isActive('orderedList') ? '#0066c2' : '#475569', fontSize: '12px', fontWeight: '600', cursor: 'pointer' }}
-                      >
-                        <ListOrdered size={15} />
+                        <ImageIcon size={14} /> Add Image
                       </button>
                     </div>
 
-                    <div className="emoji-strip" style={{ display: 'flex', alignItems: 'center', gap: '4px', backgroundColor: '#ffffff', padding: '3px 8px', borderRadius: '20px', border: '1px solid #cbd5e1', flexWrap: 'wrap' }}>
-                      <Smile size={14} style={{ color: '#0066c2', marginRight: '2px' }} />
+                    <div style={{ display: 'flex', gap: '3px', alignItems: 'center' }}>
                       {emojiAndSymbolsList.map((item) => (
                         <button
                           key={item}
                           type="button"
-                          onClick={() => insertSymbolAtCursor(item)}
-                          style={{ border: 'none', background: 'none', fontSize: '14px', cursor: 'pointer', padding: '2px 4px', borderRadius: '4px' }}
+                          onClick={() => editor.chain().focus().insertContent(item).run()}
+                          style={{ border: 'none', background: 'none', fontSize: '13px', cursor: 'pointer', padding: '2px 4px' }}
                         >
                           {item}
                         </button>
@@ -2340,100 +2338,189 @@ export default function LinkedInWorkspace() {
                   </div>
                 )}
 
-                <div style={{ minHeight: '160px', border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', fontSize: '13px', lineHeight: '1.6', position: 'relative', width: '100%', boxSizing: 'border-box', overflowWrap: 'break-word' }}>
+                {/* TIPTAP EDITOR CONTAINER */}
+                <div className="rich-editor-box" style={{ border: '1px solid #cbd5e1', borderRadius: '8px', padding: '12px', minHeight: '160px', backgroundColor: '#ffffff' }}>
                   <EditorContent editor={editor} />
                 </div>
 
-                {attachedImageUrl && (
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#f8fafc', padding: '10px 14px', borderRadius: '8px', border: '1px solid #cbd5e1', flexWrap: 'wrap', gap: '8px', width: '100%', boxSizing: 'border-box' }}>
-                    <span style={{ fontSize: '12px', fontWeight: '600', color: '#334155' }}>🖼️ Attached Canvas Image:</span>
-                    <div style={{ display: 'flex', gap: '8px' }}>
-                      <button
-                        onClick={copyImageToClipboard}
-                        style={{ padding: '6px 12px', borderRadius: '6px', border: '1px solid #cbd5e1', backgroundColor: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Copy size={13} /> Copy Image
-                      </button>
-                      <a
-                        href={attachedImageUrl}
-                        download="linkedin-post-image.png"
-                        style={{ padding: '6px 12px', borderRadius: '6px', border: 'none', backgroundColor: '#0f172a', color: '#ffffff', fontSize: '11px', fontWeight: '600', cursor: 'pointer', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: '4px' }}
-                      >
-                        <Download size={13} /> Download
-                      </a>
-                    </div>
-                  </div>
-                )}
-
-                <div className="draft-actions" style={{ display: 'flex', gap: '12px', flexWrap: 'wrap', width: '100%', boxSizing: 'border-box' }}>
-                  <button 
+                {/* DRAFT ACTIONS */}
+                <div className="draft-actions" style={{ display: 'flex', gap: '10px' }}>
+                  <button
+                    type="button"
                     onClick={handleManualPost}
-                    style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '8px', boxSizing: 'border-box' }}
+                    style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                   >
                     <ExternalLink size={16} />
                     <span>Copy Draft & Open LinkedIn</span>
                   </button>
 
-                  <button 
+                  <button
+                    type="button"
                     disabled={true}
-                    style={{ flex: 1, backgroundColor: '#94a3b8', color: '#ffffff', border: 'none', padding: '14px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', opacity: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px', boxSizing: 'border-box' }}
+                    style={{ flex: 1, backgroundColor: '#94a3b8', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'not-allowed', opacity: 0.75, display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
                   >
                     <Lock size={15} />
-                    <span>Publish Direct API (DM to Unlock)</span>
+                    <span>Publish Direct API (DM)</span>
                   </button>
                 </div>
               </div>
             </div>
+          )}
 
-            {/* RIGHT COLUMN: PREVIEW */}
-            <div className="workspace-preview">
-              <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-                <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-                  <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
-                    <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Canvas
-                  </span>
-                  <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
-                </div>
-
-                <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px', width: '100%', boxSizing: 'border-box', minWidth: 0 }}>
-                  <div style={{ display: 'flex', alignItems: 'center', gap: '12px', minWidth: 0 }}>
-                    <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold', flexShrink: 0 }}>
-                      <Building2 size={20} />
-                    </div>
-                    <div style={{ minWidth: 0, overflow: 'hidden' }}>
-                      <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                        Enterprise Cloud Solutions <CheckCircle2 size={13} style={{ color: '#0066c2', flexShrink: 0 }} />
-                      </div>
-                      <div style={{ fontSize: '11px', color: '#64748b' }}>14,200 followers • Promoted</div>
-                      <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
-                        Just now • <Globe size={10} />
-                      </div>
-                    </div>
+          {/* TAB 4: LIVE POST PREVIEW */}
+          {activeTab === 'preview' && (
+            <div className="workspace-card" style={{ backgroundColor: '#ffffff', borderRadius: '16px', padding: '24px', border: '1px solid #e2e8f0', display: 'flex', flexDirection: 'column', gap: '18px' }}>
+              {/* RIGHT COLUMN: PREVIEW CONTAINER */}
+              <div className="workspace-column workspace-preview" style={{ width: '100%' }}>
+                <div style={{ backgroundColor: '#ffffff', borderRadius: '16px', border: '1px solid #cbd5e1', boxShadow: '0 4px 12px rgba(0,0,0,0.08)', overflow: 'hidden', width: '100%' }}>
+                  
+                  {/* HEADER BAR */}
+                  <div style={{ backgroundColor: '#0f172a', color: '#ffffff', padding: '10px 16px', fontSize: '12px', fontWeight: '700', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+                      <Eye size={14} style={{ color: '#38bdf8' }} /> Live Post Feed Canvas
+                    </span>
+                    <span style={{ backgroundColor: '#059669', color: '#ffffff', padding: '2px 8px', borderRadius: '10px', fontSize: '10px' }}>Real-time Preview</span>
                   </div>
 
-                  <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px', overflowWrap: 'break-word', wordBreak: 'break-word', minWidth: 0 }}>
-                    {editorHtml && editorHtml !== '<p></p>' ? (
-                      <div className="break-word-all" dangerouslySetInnerHTML={{ __html: editorHtml }} />
-                    ) : (
-                      <span style={{ color: '#94a3b8', fontStyle: 'italic' }}>Your generated content will dynamically render here...</span>
+                  {/* POST BODY */}
+                  <div style={{ padding: '16px', display: 'flex', flexDirection: 'column', gap: '12px' }}>
+                    
+                    {/* AUTHOR PROFILE ROW */}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
+                      <div style={{ width: '42px', height: '42px', backgroundColor: '#0066c2', borderRadius: '50%', color: '#ffffff', display: 'flex', alignItems: 'center', justifyContent: 'center', fontWeight: 'bold' }}>
+                        ST
+                      </div>
+                      <div>
+                        <div style={{ fontWeight: '700', fontSize: '13px', color: '#0f172a', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          Sunarc Technologies <CheckCircle2 size={13} style={{ color: '#0066c2' }} />
+                        </div>
+                        <div style={{ fontSize: '11px', color: '#64748b' }}>Enterprise Cloud Solutions • Promoted</div>
+                        <div style={{ fontSize: '10px', color: '#94a3b8', display: 'flex', alignItems: 'center', gap: '4px' }}>
+                          Just now • <Globe size={10} />
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* DRAFT CONTENT DISPLAY */}
+                    <div style={{ fontSize: '13px', color: '#1e293b', lineHeight: '1.6', minHeight: '120px', borderTop: '1px solid #f1f5f9', paddingTop: '12px' }}>
+                      <div dangerouslySetInnerHTML={{ __html: htmlContent || '<p style="color: #94a3b8; italic;">No content drafted yet. Use Tab 1 or 2 to generate a post draft.</p>' }} />
+                    </div>
+
+                    {/* OPTIONAL ATTACHED IMAGE */}
+                    {typeof attachedImageUrl !== 'undefined' && attachedImageUrl && (
+                      <div style={{ marginTop: '8px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #e2e8f0' }}>
+                        <img src={attachedImageUrl} alt="Attached to post" style={{ width: '100%', maxHeight: '280px', objectFit: 'cover' }} />
+                      </div>
                     )}
-                  </div>
 
-                  <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
-                      <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
-                      <span style={{ fontWeight: '600' }}>1,420</span>
+                    {/* ENGAGEMENT METRICS */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '11px', color: '#64748b', borderTop: '1px solid #f1f5f9', paddingTop: '10px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px' }}>
+                        <span style={{ backgroundColor: '#0066c2', color: '#ffffff', borderRadius: '50%', padding: '2px', fontSize: '8px' }}>👍</span>
+                        <span style={{ fontWeight: '600' }}>1,420</span>
+                      </div>
+                      <div>48 comments • 12 reposts</div>
                     </div>
-                    <div>48 comments • 12 reposts</div>
+
+                    {/* MOCK ENGAGEMENT ACTION FOOTER */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', borderTop: '1px solid #f1f5f9', paddingTop: '10px', color: '#64748b', fontSize: '12px' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}><ThumbsUp size={14} /> <span>Like</span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}><MessageSquare size={14} /> <span>Comment</span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}><Repeat2 size={14} /> <span>Repost</span></div>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '4px', cursor: 'pointer' }}><SendHorizontal size={14} /> <span>Send</span></div>
+                    </div>
+
                   </div>
                 </div>
               </div>
             </div>
+          )} 
+        </main>
+      )}
 
+      {/* Mobile Bottom Footer: Visible on Mobile (<768px), Hidden on Desktop */}
+        {currentView !== 'landing' && (
+          <div className="mobile-bottom-footer" style={{ position: 'fixed', bottom: 0, left: 0, right: 0, backgroundColor: '#ffffff', borderTop: '1px solid #e2e8f0', padding: '12px', justifyContent: 'space-around', alignItems: 'center', zIndex: 50, boxShadow: '0 -4px 12px rgba(0,0,0,0.05)' }}>
+            <button
+              type="button"
+              onClick={() => setCurrentView('landing')}
+              style={{ flex: 1, marginRight: '6px', backgroundColor: '#f1f5f9', color: '#0f172a', border: '1px solid #cbd5e1', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            >
+              <Layout size={14} />
+              <span>Landing Page</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowAuthConfig(!showAuthConfig)}
+              style={{ flex: 1, marginLeft: '6px', backgroundColor: '#0f172a', color: '#ffffff', border: 'none', padding: '10px 12px', borderRadius: '8px', fontSize: '12px', fontWeight: '600', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
+            >
+              <Key size={14} />
+              <span>API Credentials & Auth</span>
+            </button>
           </div>
         )}
+      
+      {/* STICKY BOTTOM STATUS MESSAGE BAR */}
+      {statusMessage && (
+        <div style={{
+          position: 'fixed',
+          bottom: '20px',
+          left: '50%',
+          transform: 'translateX(-50%)',
+          zIndex: 9999,
+          width: 'calc(100% - 32px)',
+          maxWidth: '560px',
+          boxSizing: 'border-box'
+        }}>
+          <div style={{
+            padding: '12px 16px',
+            borderRadius: '12px',
+            fontSize: '12px',
+            fontWeight: '600',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: '12px',
+            boxShadow: '0 10px 25px -5px rgba(0, 0, 0, 0.2), 0 8px 10px -6px rgba(0, 0, 0, 0.1)',
+            backgroundColor: statusMessage.type === 'error' ? '#1e1b4b' : statusMessage.type === 'success' ? '#064e3b' : '#0f172a',
+            color: '#ffffff',
+            border: `1px solid ${statusMessage.type === 'error' ? '#ef4444' : statusMessage.type === 'success' ? '#10b981' : '#38bdf8'}`
+          }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px', minWidth: 0 }}>
+              {statusMessage.type === 'error' ? (
+                <AlertCircle size={18} style={{ color: '#f87171', flexShrink: 0 }} />
+              ) : statusMessage.type === 'success' ? (
+                <CheckCircle2 size={18} style={{ color: '#34d399', flexShrink: 0 }} />
+              ) : (
+                <Sparkles size={18} style={{ color: '#38bdf8', flexShrink: 0 }} />
+              )}
+              <span style={{ lineHeight: '1.4', wordBreak: 'break-word', minWidth: 0 }}>
+                {statusMessage.text}
+              </span>
+            </div>
 
-      </div>
+            <button
+              onClick={() => setStatusMessage(null)}
+              style={{
+                background: 'none',
+                border: 'none',
+                color: '#94a3b8',
+                cursor: 'pointer',
+                padding: '4px',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                flexShrink: 0
+              }}
+              title="Close status"
+            >
+              <X size={16} />
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
-}
+};
+
+export default LinkedInWorkspace;
