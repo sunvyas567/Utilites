@@ -954,7 +954,28 @@ function LinkedInWorkspace () {
       setStatusMessage({ type: 'error', text: 'Browser prevented direct image copy. Use Download instead.' });
     }
   };
-  const handleManualPost = async () => {
+  // Remove 'async' from the main function signature
+  const handleManualPost = () => {
+    if (!plainText) {
+      setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+      return;
+    }
+
+    // 1. MUST execute 100% synchronously in the main call stack
+    const linkedinWindow = window.open('https://www.linkedin.com/feed/', '_blank', 'noopener,noreferrer');
+
+    // 2. Handle clipboard using standard promise chain instead of await
+    navigator.clipboard.writeText(plainText)
+      .then(() => {
+        setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+      })
+      .catch((err) => {
+        // Close the opened tab if copying fails
+        if (linkedinWindow) linkedinWindow.close();
+        setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+      });
+  };
+  const handleManualPostold2 = async () => {
     if (!plainText) {
       setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
       return;
