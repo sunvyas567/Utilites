@@ -955,6 +955,30 @@ function LinkedInWorkspace () {
   };
 
   const handleManualPost = async () => {
+  if (!plainText) {
+    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+    return;
+  }
+
+  // 1. Open the new tab immediately while user click gesture is active
+  const newTab = window.open('https://www.linkedin.com/feed/', '_blank');
+
+  try {
+    // 2. Perform the async copy operation
+    await navigator.clipboard.writeText(plainText);
+    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+    
+    // 3. Fallback direct navigation if popup was suppressed/blocked
+    if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
+      window.location.href = 'https://www.linkedin.com/feed/';
+    }
+  } catch (err) {
+    // Close the opened tab if the copy operation failed
+    if (newTab) newTab.close();
+    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+  }
+};
+  const handleManualPostOld = async () => {
     if (!plainText) {
       setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
       return;
