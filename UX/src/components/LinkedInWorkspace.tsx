@@ -1386,6 +1386,25 @@ function LinkedInWorkspace () {
           min-width: 720px !important;
         }
       }
+      .auth-config-banner {
+    position: fixed;
+    bottom: 70px;
+    left: 16px;
+    right: 16px;
+    z-index: 60;
+    box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.2);
+  }
+
+  @media (min-width: 768px) {
+    .auth-config-banner {
+      position: relative;
+      bottom: auto;
+      left: auto;
+      right: auto;
+      width: 65%;
+      margin: 0 auto 20px auto; /* Centers the 65% banner to match the header */
+      box-shadow: none;
+    }
     `}</style>
 
     {/* HEADER BAR */}
