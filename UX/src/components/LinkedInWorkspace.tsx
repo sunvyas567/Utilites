@@ -631,6 +631,7 @@ function LinkedInWorkspace () {
   const emojiAndSymbolsList = ['🔹', '▸', '▪', '✅', '⚡', '🚀', '💡', '📈', '🔥', '💬'];
 
   const tabsNavRef = useRef<HTMLDivElement>(null);
+  const linkedinTabRef = useRef<Window | null>(null);
   const [canScrollLeft, setCanScrollLeft] = useState(false);
   const [canScrollRight, setCanScrollRight] = useState(true);
 
@@ -955,6 +956,33 @@ function LinkedInWorkspace () {
   };
 
   const handleManualPost = async () => {
+  if (!plainText) {
+    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+    return;
+  }
+
+  try {
+    // 1. Copy content to clipboard first
+    await navigator.clipboard.writeText(plainText);
+    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+
+    const targetUrl = 'https://www.linkedin.com/feed/';
+
+    // 2. Check if the tab handle exists and is still open
+    if (linkedinTabRef.current && !linkedinTabRef.current.closed) {
+      // Focus existing tab and redirect
+      linkedinTabRef.current.focus();
+      linkedinTabRef.current.location.href = targetUrl;
+    } else {
+      // Open a fresh tab and store reference in useRef
+      linkedinTabRef.current = window.open(targetUrl, 'linkedin_tab');
+    }
+
+  } catch (err) {
+    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+  }
+};
+  const handleManualPostOld2 = async () => {
   if (!plainText) {
     setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
     return;
@@ -1470,7 +1498,7 @@ function LinkedInWorkspace () {
             SunArc LinkedIn Draft Creator
           </h1>
           <p style={{ margin: 0, fontSize: '11px', color: '#64748b', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-            Voice-Driven LinkedIn Draft & Content Engine
+            Voice & Text Driven LinkedIn Draft & Content Engine
           </p>
         </div>
       </div>
