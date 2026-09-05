@@ -954,8 +954,57 @@ function LinkedInWorkspace () {
       setStatusMessage({ type: 'error', text: 'Browser prevented direct image copy. Use Download instead.' });
     }
   };
-
   const handleManualPost = async () => {
+    if (!plainText) {
+      setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+      return;
+    }
+
+    // 1. Synchronously open the tab IMMEDIATELY on click to preserve user gesture context
+    const linkedinWindow = window.open('https://www.linkedin.com/feed/', '_blank');
+
+    try {
+      // 2. Perform the async clipboard copy while the tab is already opening
+      await navigator.clipboard.writeText(plainText);
+      setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+    } catch (err) {
+      // 3. Clean up the tab if clipboard fails
+      if (linkedinWindow) linkedinWindow.close();
+      setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+    }
+  };
+  const handleManualPostold = async () => {
+    if (!plainText) {
+      setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+      return;
+    }
+
+    const targetUrl = 'https://www.linkedin.com/feed/';
+    let newTabInstance: Window | null = null;
+
+    // 1. MUST trigger window action synchronously BEFORE any await calls
+    if (linkedinTabRef.current && !linkedinTabRef.current.closed) {
+      linkedinTabRef.current.focus();
+      linkedinTabRef.current.location.href = targetUrl;
+    } else {
+      // Open a fresh window context immediately on click gesture
+      newTabInstance = window.open(targetUrl, '_blank');
+      linkedinTabRef.current = newTabInstance;
+    }
+
+    // 2. Perform the async clipboard write after the tab is already active/opening
+    try {
+      await navigator.clipboard.writeText(plainText);
+      setStatusMessage({ type: 'success', text: '📋 Draft copied! Redirecting to LinkedIn...' });
+    } catch (err) {
+      // Roll back if clipboard fails
+      if (newTabInstance && !newTabInstance.closed) {
+        newTabInstance.close();
+      }
+      setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+    }
+  };
+  const handleManualPost3 = async () => {
     if (!plainText) {
       setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
       return;
