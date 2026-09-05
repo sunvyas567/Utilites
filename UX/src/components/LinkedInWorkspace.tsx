@@ -2455,16 +2455,30 @@ function LinkedInWorkspace () {
                     href="https://www.linkedin.com/feed/"
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="your-button-styles" // Keep your existing button styling
+                    style={{
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '8px',
+                      padding: '10px 16px',
+                      backgroundColor: '#0a66c2', // Match your existing button color
+                      color: '#ffffff',
+                      borderRadius: '6px',
+                      fontWeight: 600,
+                      fontSize: '14px',
+                      textDecoration: 'none',
+                      border: 'none',
+                      cursor: 'pointer',
+                      boxShadow: '0 2px 4px rgba(0, 0, 0, 0.1)',
+                    }}
                     onClick={async (e) => {
                       if (!plainText) {
-                        e.preventDefault(); // Stop tab from opening if content is empty
+                        e.preventDefault(); // Prevents opening LinkedIn if draft is empty
                         setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
                         return;
                       }
 
                       try {
-                        // Clipboard write runs asynchronously while browser natively opens the link
                         await navigator.clipboard.writeText(plainText);
                         setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
                       } catch (err) {
@@ -2472,16 +2486,8 @@ function LinkedInWorkspace () {
                       }
                     }}
                   >
-                    Copy Draft & Open LinkedIn New
+                    📋 Copy Draft & Open LinkedIn
                   </a>
-                  <button
-                    type="button"
-                    onClick={handleManualPost}
-                    style={{ flex: 1, backgroundColor: '#0066c2', color: '#ffffff', border: 'none', padding: '12px', borderRadius: '8px', fontWeight: '700', fontSize: '13px', cursor: 'pointer', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '6px' }}
-                  >
-                    <ExternalLink size={16} />
-                    <span>Copy Draft & Open LinkedIn</span>
-                  </button>
 
                   <button
                     type="button"
