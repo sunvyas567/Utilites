@@ -956,96 +956,33 @@ function LinkedInWorkspace () {
   };
 
   const handleManualPost = async () => {
-  if (!plainText) {
-    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
-    return;
-  }
-
-  try {
-    // 1. Copy content to clipboard first
-    await navigator.clipboard.writeText(plainText);
-    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
-
-    const targetUrl = 'https://www.linkedin.com/feed/';
-
-    // 2. Check if the tab handle exists and is still open
-    if (linkedinTabRef.current && !linkedinTabRef.current.closed) {
-      // Focus existing tab and redirect
-      linkedinTabRef.current.focus();
-      linkedinTabRef.current.location.href = targetUrl;
-    } else {
-      // Open a fresh tab and store reference in useRef
-      linkedinTabRef.current = window.open(targetUrl, 'linkedin_tab');
-    }
-
-  } catch (err) {
-    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
-  }
-};
-  const handleManualPostOld2 = async () => {
-  if (!plainText) {
-    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
-    return;
-  }
-
-  try {
-    // 1. Copy draft to clipboard
-    await navigator.clipboard.writeText(plainText);
-    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
-
-    // 2. Open or reuse existing LinkedIn tab using a named target
-    const link = document.createElement('a');
-    link.href = 'https://www.linkedin.com/feed/';
-    
-    // Using a named target reuses the tab if it was opened by your app
-    link.target = 'linkedin_workspace_tab'; 
-    link.rel = 'noopener';
-
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-
-  } catch (err) {
-    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
-  }
-};
-  const handleManualPostOld1 = async () => {
-  if (!plainText) {
-    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
-    return;
-  }
-
-  // 1. Open the new tab immediately while user click gesture is active
-  const newTab = window.open('https://www.linkedin.com/feed/', '_blank');
-
-  try {
-    // 2. Perform the async copy operation
-    await navigator.clipboard.writeText(plainText);
-    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
-    
-    // 3. Fallback direct navigation if popup was suppressed/blocked
-    if (!newTab || newTab.closed || typeof newTab.closed === 'undefined') {
-      window.location.href = 'https://www.linkedin.com/feed/';
-    }
-  } catch (err) {
-    // Close the opened tab if the copy operation failed
-    if (newTab) newTab.close();
-    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
-  }
-};
-  const handleManualPostOld = async () => {
     if (!plainText) {
       setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
       return;
     }
+
     try {
+      // 1. Copy content to clipboard first
       await navigator.clipboard.writeText(plainText);
-      setStatusMessage({ type: 'success', text: '📋 Draft copied! Redirecting to LinkedIn...' });
-      setTimeout(() => { window.open('https://www.linkedin.com/feed/', '_blank'); }, 700);
+      setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+
+      const targetUrl = 'https://www.linkedin.com/feed/';
+
+      // 2. Check if the tab handle exists and is still open
+      if (linkedinTabRef.current && !linkedinTabRef.current.closed) {
+        // Focus existing tab and redirect
+        linkedinTabRef.current.focus();
+        linkedinTabRef.current.location.href = targetUrl;
+      } else {
+        // Open a fresh tab and store reference in useRef
+        linkedinTabRef.current = window.open(targetUrl, 'linkedin_tab');
+      }
+
     } catch (err) {
       setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
     }
   };
+
 
   const updateGenerationProgress = (progress: number, stage: string) => {
     setGenerationProgress(Math.max(0, Math.min(100, progress)));
