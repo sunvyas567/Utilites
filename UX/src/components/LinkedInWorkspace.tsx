@@ -829,6 +829,7 @@ function LinkedInWorkspace () {
     onUpdate: ({ editor }) => {
       const rawHtml = editor.getHTML();
       setEditorHtml(rawHtml);
+      setHtmlContent(rawHtml); // <-- Add this to fix Live Preview
       setPlainText(convertHtmlToLinkedInText(rawHtml));
     },
   });
