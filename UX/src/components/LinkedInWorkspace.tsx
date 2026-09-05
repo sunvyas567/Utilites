@@ -2451,6 +2451,29 @@ function LinkedInWorkspace () {
 
                 {/* DRAFT ACTIONS */}
                 <div className="draft-actions" style={{ display: 'flex', gap: '10px' }}>
+                  <a
+                    href="https://www.linkedin.com/feed/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="your-button-styles" // Keep your existing button styling
+                    onClick={async (e) => {
+                      if (!plainText) {
+                        e.preventDefault(); // Stop tab from opening if content is empty
+                        setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+                        return;
+                      }
+
+                      try {
+                        // Clipboard write runs asynchronously while browser natively opens the link
+                        await navigator.clipboard.writeText(plainText);
+                        setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+                      } catch (err) {
+                        setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+                      }
+                    }}
+                  >
+                    Copy Draft & Open LinkedIn New
+                  </a>
                   <button
                     type="button"
                     onClick={handleManualPost}
