@@ -960,6 +960,33 @@ function LinkedInWorkspace () {
     return;
   }
 
+  try {
+    // 1. Copy draft to clipboard
+    await navigator.clipboard.writeText(plainText);
+    setStatusMessage({ type: 'success', text: '📋 Draft copied! Opening LinkedIn...' });
+
+    // 2. Open or reuse existing LinkedIn tab using a named target
+    const link = document.createElement('a');
+    link.href = 'https://www.linkedin.com/feed/';
+    
+    // Using a named target reuses the tab if it was opened by your app
+    link.target = 'linkedin_workspace_tab'; 
+    link.rel = 'noopener';
+
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+
+  } catch (err) {
+    setStatusMessage({ type: 'error', text: 'Clipboard copy failed.' });
+  }
+};
+  const handleManualPostOld1 = async () => {
+  if (!plainText) {
+    setStatusMessage({ type: 'error', text: 'Draft content cannot be empty.' });
+    return;
+  }
+
   // 1. Open the new tab immediately while user click gesture is active
   const newTab = window.open('https://www.linkedin.com/feed/', '_blank');
 
